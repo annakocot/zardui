@@ -62,7 +62,7 @@ class InitialActiveItemHostComponent {
       }
 
       <button type="button" z-questionnaire-next>Next</button>
-      <button type="button" z-questionnaire-submit>Submit</button>
+      <button z-questionnaire-submit>Submit</button>
     </z-questionnaire>
   `,
   changeDetection: ChangeDetectionStrategy.Eager,
@@ -111,7 +111,7 @@ class DisabledItemHostComponent {
       <button type="button" z-questionnaire-previous>Previous</button>
       <button type="button" z-questionnaire-skip>Skip</button>
       <button type="button" z-questionnaire-next>Next</button>
-      <button type="button" z-questionnaire-submit>Submit</button>
+      <button type="submit" z-questionnaire-submit>Submit</button>
     </z-questionnaire>
   `,
   changeDetection: ChangeDetectionStrategy.Eager,

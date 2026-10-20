@@ -9,6 +9,17 @@ import {
 import { ZardQuestionnaireProgressComponent } from './questionnaire-progress.component';
 import { ZardQuestionnaireComponent } from './questionnaire.component';
 
+export const ZardQuestionnaireImports = [
+  ZardQuestionnaireComponent,
+  ZardQuestionnaireChoiceComponent,
+  ZardQuestionnaireItemComponent,
+  ZardQuestionnaireProgressComponent,
+  ZardQuestionnairePreviousDirective,
+  ZardQuestionnaireSkipDirective,
+  ZardQuestionnaireNextDirective,
+  ZardQuestionnaireSubmitDirective,
+] as const;
+
 export {
   ZardQuestionnaireComponent,
   ZardQuestionnaireChoiceComponent,
