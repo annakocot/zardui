@@ -1,61 +1,209 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
-import { TestBed } from '@angular/core/testing';
+import { ChangeDetectionStrategy, Component, type Type } from '@angular/core';
+import { type ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 
-import { ZardQuestionnaireNextDirective } from './questionnaire-navigation.directive';
+import {
+  ZardQuestionnaireNextDirective,
+  ZardQuestionnairePreviousDirective,
+  ZardQuestionnaireSkipDirective,
+  ZardQuestionnaireSubmitDirective,
+} from './questionnaire-navigation.directive';
 import { ZardQuestionnaireComponent } from './questionnaire.component';
 import type { ZardQuestionnaireItem } from './questionnaire.types';
 
 @Component({
-  imports: [ZardQuestionnaireComponent, ZardQuestionnaireNextDirective],
+  imports: [
+    ZardQuestionnaireComponent,
+    ZardQuestionnaireNextDirective,
+    ZardQuestionnairePreviousDirective,
+    ZardQuestionnaireSkipDirective,
+    ZardQuestionnaireSubmitDirective,
+  ],
   template: `
     <z-questionnaire [zItems]="items" [(zActive)]="active">
       <input type="radio" name="first" value="answered" checked />
-      <button z-questionnaire-next [disabled]="nextDisabled">Next</button>
+      <button type="button" z-questionnaire-previous [disabled]="previousDisabled">Previous</button>
+      <button type="button" z-questionnaire-skip [disabled]="skipDisabled">Skip</button>
+      <button type="button" z-questionnaire-next [disabled]="nextDisabled">Next</button>
+      <button type="submit" z-questionnaire-submit [disabled]="submitDisabled">Submit</button>
     </z-questionnaire>
   `,
   changeDetection: ChangeDetectionStrategy.Eager,
 })
-class NextDirectiveHostComponent {
-  readonly items: ZardQuestionnaireItem[] = [{ name: 'first', required: true }, { name: 'second' }];
+class NavigationDirectiveHostComponent {
+  readonly items: ZardQuestionnaireItem[] = [
+    { name: 'first', required: true },
+    { name: 'optional' },
+    { name: 'last', required: true },
+  ];
+
   active = 'first';
+  previousDisabled = false;
+  skipDisabled = false;
   nextDisabled = false;
+  submitDisabled = false;
 }
 
-describe('ZardQuestionnaireNextDirective', () => {
+function getButton<T>(
+  fixture: ComponentFixture<NavigationDirectiveHostComponent>,
+  directive: Type<T>,
+): HTMLButtonElement {
+  return fixture.debugElement.query(By.directive(directive)).nativeElement as HTMLButtonElement;
+}
+
+describe('questionnaire navigation directives', () => {
   beforeEach(async () => {
-    await TestBed.configureTestingModule({ imports: [NextDirectiveHostComponent] }).compileComponents();
+    await TestBed.configureTestingModule({ imports: [NavigationDirectiveHostComponent] }).compileComponents();
   });
 
-  it('moves to the next enabled item and disables itself on the last item', () => {
-    const fixture = TestBed.createComponent(NextDirectiveHostComponent);
-    fixture.detectChanges();
-    const button = fixture.debugElement.query(By.directive(ZardQuestionnaireNextDirective))
-      .nativeElement as HTMLButtonElement;
+  describe('ZardQuestionnairePreviousDirective', () => {
+    it('is a button, exposes its slot, and is disabled on the first enabled item', () => {
+      const fixture = TestBed.createComponent(NavigationDirectiveHostComponent);
+      fixture.detectChanges();
+      const button = getButton(fixture, ZardQuestionnairePreviousDirective);
 
-    expect(button.type).toBe('button');
-    expect(button.dataset['slot']).toBe('questionnaire-next');
-    expect(button.disabled).toBe(false);
+      expect(button.type).toBe('button');
+      expect(button.dataset['slot']).toBe('questionnaire-previous');
+      expect(button.disabled).toBe(true);
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+    });
 
-    button.click();
-    fixture.detectChanges();
+    it('moves to the previous item when applicable', () => {
+      const fixture = TestBed.createComponent(NavigationDirectiveHostComponent);
+      fixture.componentInstance.active = 'optional';
+      fixture.detectChanges();
+      const button = getButton(fixture, ZardQuestionnairePreviousDirective);
 
-    expect(fixture.componentInstance.active).toBe('second');
-    expect(button.disabled).toBe(true);
-    expect(button.getAttribute('aria-disabled')).toBe('true');
+      expect(button.disabled).toBe(false);
+      expect(button.getAttribute('aria-disabled')).toBeNull();
+
+      button.click();
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.active).toBe('first');
+    });
+
+    it('preserves a consumer disabled state and does not navigate', () => {
+      const fixture = TestBed.createComponent(NavigationDirectiveHostComponent);
+      fixture.componentInstance.active = 'optional';
+      fixture.componentInstance.previousDisabled = true;
+      fixture.detectChanges();
+      const button = getButton(fixture, ZardQuestionnairePreviousDirective);
+
+      button.click();
+      fixture.detectChanges();
+
+      expect(button.disabled).toBe(true);
+      expect(fixture.componentInstance.active).toBe('optional');
+    });
   });
 
-  it('preserves a consumer disabled state and does not navigate', () => {
-    const fixture = TestBed.createComponent(NextDirectiveHostComponent);
-    fixture.componentInstance.nextDisabled = true;
-    fixture.detectChanges();
-    const button = fixture.debugElement.query(By.directive(ZardQuestionnaireNextDirective))
-      .nativeElement as HTMLButtonElement;
+  describe('ZardQuestionnaireSkipDirective', () => {
+    it('is a button, exposes its slot, and is disabled for required items', () => {
+      const fixture = TestBed.createComponent(NavigationDirectiveHostComponent);
+      fixture.detectChanges();
+      const button = getButton(fixture, ZardQuestionnaireSkipDirective);
 
-    button.click();
-    fixture.detectChanges();
+      expect(button.type).toBe('button');
+      expect(button.dataset['slot']).toBe('questionnaire-skip');
+      expect(button.disabled).toBe(true);
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+    });
 
-    expect(button.disabled).toBe(true);
-    expect(fixture.componentInstance.active).toBe('first');
+    it('is enabled for an optional item and skips it', () => {
+      const fixture = TestBed.createComponent(NavigationDirectiveHostComponent);
+      fixture.componentInstance.active = 'optional';
+      fixture.detectChanges();
+      const button = getButton(fixture, ZardQuestionnaireSkipDirective);
+
+      expect(button.disabled).toBe(false);
+      expect(button.getAttribute('aria-disabled')).toBeNull();
+
+      button.click();
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.active).toBe('last');
+    });
+
+    it('preserves a consumer disabled state and does not skip', () => {
+      const fixture = TestBed.createComponent(NavigationDirectiveHostComponent);
+      fixture.componentInstance.active = 'optional';
+      fixture.componentInstance.skipDisabled = true;
+      fixture.detectChanges();
+      const button = getButton(fixture, ZardQuestionnaireSkipDirective);
+
+      button.click();
+      fixture.detectChanges();
+
+      expect(button.disabled).toBe(true);
+      expect(fixture.componentInstance.active).toBe('optional');
+    });
+  });
+
+  describe('ZardQuestionnaireNextDirective', () => {
+    it('is a button, exposes its slot, moves forward, and disables itself on the last item', () => {
+      const fixture = TestBed.createComponent(NavigationDirectiveHostComponent);
+      fixture.detectChanges();
+      const button = getButton(fixture, ZardQuestionnaireNextDirective);
+
+      expect(button.type).toBe('button');
+      expect(button.dataset['slot']).toBe('questionnaire-next');
+      expect(button.disabled).toBe(false);
+      expect(button.getAttribute('aria-disabled')).toBeNull();
+
+      button.click();
+      fixture.detectChanges();
+
+      expect(fixture.componentInstance.active).toBe('optional');
+
+      fixture.componentInstance.active = 'last';
+      fixture.detectChanges();
+
+      expect(button.disabled).toBe(true);
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+    });
+
+    it('preserves a consumer disabled state and does not navigate', () => {
+      const fixture = TestBed.createComponent(NavigationDirectiveHostComponent);
+      fixture.componentInstance.nextDisabled = true;
+      fixture.detectChanges();
+      const button = getButton(fixture, ZardQuestionnaireNextDirective);
+
+      button.click();
+      fixture.detectChanges();
+
+      expect(button.disabled).toBe(true);
+      expect(fixture.componentInstance.active).toBe('first');
+    });
+  });
+
+  describe('ZardQuestionnaireSubmitDirective', () => {
+    it('is a submit button, exposes its slot, and is enabled only on the last item', () => {
+      const fixture = TestBed.createComponent(NavigationDirectiveHostComponent);
+      fixture.detectChanges();
+      const button = getButton(fixture, ZardQuestionnaireSubmitDirective);
+
+      expect(button.type).toBe('submit');
+      expect(button.dataset['slot']).toBe('questionnaire-submit');
+      expect(button.disabled).toBe(true);
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+
+      fixture.componentInstance.active = 'last';
+      fixture.detectChanges();
+
+      expect(button.disabled).toBe(false);
+      expect(button.getAttribute('aria-disabled')).toBeNull();
+    });
+
+    it('preserves a consumer disabled state', () => {
+      const fixture = TestBed.createComponent(NavigationDirectiveHostComponent);
+      fixture.componentInstance.active = 'last';
+      fixture.componentInstance.submitDisabled = true;
+      fixture.detectChanges();
+      const button = getButton(fixture, ZardQuestionnaireSubmitDirective);
+
+      expect(button.disabled).toBe(true);
+      expect(button.getAttribute('aria-disabled')).toBe('true');
+    });
   });
 });
