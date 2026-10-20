@@ -27,7 +27,7 @@ import { questionnaireVariants } from './questionnaire.variants';
 @Component({
   selector: 'z-questionnaire',
   template: `
-    <form #form (submit)="handleSubmit($event)" (reset)="handleReset()">
+    <form #form (input)="handleAnswerChange($event)" (submit)="handleSubmit($event)" (reset)="handleReset()">
       <ng-content />
     </form>
   `,
@@ -93,7 +93,9 @@ export class ZardQuestionnaireComponent {
       return;
     }
 
-    this.zActive.set(this.enabledItems()[this.activeIndex() + 1].name);
+    const nextItem = this.enabledItems()[this.activeIndex() + 1];
+    this.zActive.set(nextItem.name);
+    this.focusFirstAnswer(nextItem.name);
   }
 
   previous(): void {
@@ -101,7 +103,9 @@ export class ZardQuestionnaireComponent {
       return;
     }
 
-    this.zActive.set(this.enabledItems()[this.activeIndex() - 1].name);
+    const previousItem = this.enabledItems()[this.activeIndex() - 1];
+    this.zActive.set(previousItem.name);
+    this.focusFirstAnswer(previousItem.name);
   }
 
   skip(): void {
@@ -114,12 +118,56 @@ export class ZardQuestionnaireComponent {
     this.updateSet(this.invalidItems, activeItem.name, false);
 
     if (this.canMoveNext()) {
-      this.zActive.set(this.enabledItems()[this.activeIndex() + 1].name);
+      const nextItem = this.enabledItems()[this.activeIndex() + 1];
+      this.zActive.set(nextItem.name);
+      this.focusFirstAnswer(nextItem.name);
     }
   }
 
   isInvalid(name: string): boolean {
     return this.invalidItems().has(name);
+  }
+
+  shortcutFor(input: HTMLInputElement, itemName: string): string | null {
+    const mode = this.zShortcuts();
+    if (mode === 'none' || itemName !== this.zActive() || input.disabled) {
+      return null;
+    }
+
+    const item = input.closest<HTMLElement>('[data-slot="questionnaire-item"]');
+    const choices = Array.from(
+      item?.querySelectorAll<HTMLInputElement>('[data-slot="questionnaire-choice"] input:not(:disabled)') ?? [],
+    );
+    const index = choices.indexOf(input);
+
+    if (index < 0) {
+      return null;
+    }
+
+    if (mode === 'letters') {
+      return index < 26 ? String.fromCharCode(97 + index) : null;
+    }
+
+    return index < 9 ? String(index + 1) : null;
+  }
+
+  handleAnswerChange(event: Event): void {
+    const control = event.target;
+    if (
+      !(control instanceof HTMLInputElement) &&
+      !(control instanceof HTMLTextAreaElement) &&
+      !(control instanceof HTMLSelectElement)
+    ) {
+      return;
+    }
+
+    const { name } = control;
+    if (!name || !this.enabledItems().some(item => item.name === name) || !this.hasAnswer(name)) {
+      return;
+    }
+
+    this.updateSet(this.skippedItems, name, false);
+    this.updateSet(this.invalidItems, name, false);
   }
 
   handleSubmit(event: SubmitEvent): void {

@@ -13,6 +13,7 @@ import type { ClassValue } from 'clsx';
 import { mergeClasses } from '@/shared/utils/merge-classes';
 
 import { ZardQuestionnaireItemComponent } from './questionnaire-item.component';
+import { ZardQuestionnaireComponent } from './questionnaire.component';
 
 @Component({
   selector: 'z-questionnaire-choice',
@@ -23,6 +24,8 @@ import { ZardQuestionnaireItemComponent } from './questionnaire-item.component';
         [name]="item.zName()"
         [value]="zValue()"
         [disabled]="disabledState()"
+        [attr.aria-keyshortcuts]="questionnaire.shortcutFor(input, item.zName())"
+        #input
       />
       <ng-content />
     </label>
@@ -37,6 +40,7 @@ import { ZardQuestionnaireItemComponent } from './questionnaire-item.component';
 })
 export class ZardQuestionnaireChoiceComponent {
   readonly item = inject(ZardQuestionnaireItemComponent);
+  protected readonly questionnaire = inject(ZardQuestionnaireComponent);
 
   readonly zValue = input.required<string>();
   readonly zDisabled = input(false, { transform: booleanAttribute });

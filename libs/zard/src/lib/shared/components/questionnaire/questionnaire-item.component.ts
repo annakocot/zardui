@@ -17,7 +17,9 @@ import { ZardQuestionnaireComponent } from './questionnaire.component';
 @Component({
   selector: 'z-questionnaire-item',
   template: `
-    <ng-content />
+    <fieldset [disabled]="zDisabled()" [attr.aria-invalid]="isInvalid() ? 'true' : null">
+      <ng-content />
+    </fieldset>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
