@@ -1201,6 +1201,9 @@
     {
       "name": "questionnaire",
       "type": "registry:component",
+      "registryDependencies": [
+        "button"
+      ],
       "icons": {
         "family": "lucide",
         "symbols": [],

@@ -41,7 +41,7 @@
     },
     {
       "name": "questionnaire-error.component.ts",
-      "content": "import { ChangeDetectionStrategy, Component, computed, input, ViewEncapsulation } from '@angular/core';\n\nimport type { ClassValue } from 'clsx';\n\nimport { mergeClasses } from '@/shared/utils/merge-classes';\n\nimport { questionnaireErrorVariants } from './questionnaire.variants';\n\n@Component({\n  selector: 'z-questionnaire-error',\n  template: '<ng-content />',\n  changeDetection: ChangeDetectionStrategy.OnPush,\n  encapsulation: ViewEncapsulation.None,\n  host: {\n    'data-slot': 'questionnaire-error',\n    role: 'alert',\n    '[class]': 'classes()',\n  },\n  exportAs: 'zQuestionnaireError',\n})\nexport class ZardQuestionnaireErrorComponent {\n  readonly class = input<ClassValue>('');\n  protected readonly classes = computed(() => mergeClasses(questionnaireErrorVariants(), this.class()));\n}\n"
+      "content": "import { ChangeDetectionStrategy, Component, computed, inject, input, ViewEncapsulation } from '@angular/core';\n\nimport type { ClassValue } from 'clsx';\n\nimport { mergeClasses } from '@/shared/utils/merge-classes';\n\nimport { ZardQuestionnaireItemComponent } from './questionnaire-item.component';\nimport { questionnaireErrorVariants } from './questionnaire.variants';\n\n@Component({\n  selector: 'z-questionnaire-error',\n  template: `\n    @if (item.isInvalid()) {\n      <ng-content>Choose an answer to continue.</ng-content>\n    }\n  `,\n  changeDetection: ChangeDetectionStrategy.OnPush,\n  encapsulation: ViewEncapsulation.None,\n  host: {\n    'data-slot': 'questionnaire-error',\n    role: 'alert',\n    '[hidden]': '!item.isInvalid()',\n    '[class]': 'classes()',\n  },\n  exportAs: 'zQuestionnaireError',\n})\nexport class ZardQuestionnaireErrorComponent {\n  readonly item = inject(ZardQuestionnaireItemComponent);\n  readonly class = input<ClassValue>('');\n  protected readonly classes = computed(() => mergeClasses(questionnaireErrorVariants(), this.class()));\n}\n"
     },
     {
       "name": "questionnaire-navigation.directive.ts",
@@ -63,6 +63,9 @@
       "name": "index.ts",
       "content": "export * from './questionnaire.component';\nexport * from './questionnaire.variants';\n"
     }
+  ],
+  "registryDependencies": [
+    "button"
   ],
   "icons": {
     "family": "lucide",

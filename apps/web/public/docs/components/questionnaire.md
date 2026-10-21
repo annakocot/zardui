@@ -530,27 +530,34 @@ export class ZardQuestionnaireDescriptionComponent {
 ```
 
 ```angular-ts
-import { ChangeDetectionStrategy, Component, computed, input, ViewEncapsulation } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, ViewEncapsulation } from '@angular/core';
 
 import type { ClassValue } from 'clsx';
 
 import { mergeClasses } from '@/shared/utils/merge-classes';
 
+import { ZardQuestionnaireItemComponent } from './questionnaire-item.component';
 import { questionnaireErrorVariants } from './questionnaire.variants';
 
 @Component({
   selector: 'z-questionnaire-error',
-  template: '<ng-content />',
+  template: `
+    @if (item.isInvalid()) {
+      <ng-content>Choose an answer to continue.</ng-content>
+    }
+  `,
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   host: {
     'data-slot': 'questionnaire-error',
     role: 'alert',
+    '[hidden]': '!item.isInvalid()',
     '[class]': 'classes()',
   },
   exportAs: 'zQuestionnaireError',
 })
 export class ZardQuestionnaireErrorComponent {
+  readonly item = inject(ZardQuestionnaireItemComponent);
   readonly class = input<ClassValue>('');
   protected readonly classes = computed(() => mergeClasses(questionnaireErrorVariants(), this.class()));
 }
@@ -1039,9 +1046,9 @@ import { ZardQuestionnaireImports } from '../questionnaire.imports';
 import type { ZardQuestionnaireAnswer, ZardQuestionnaireAnswers, ZardQuestionnaireItem } from '../questionnaire.types';
 
 const DIRECTION_LABELS: Record<string, string> = {
-  'tool-call-timeline': 'tool call timeline',
-  'approval-checkpoints': 'approval checkpoints',
-  'sub-agent-handoffs': 'sub-agent handoffs',
+  'tool-calls': 'tool call timeline',
+  approvals: 'approval checkpoints',
+  handoffs: 'sub-agent handoffs',
 };
 
 const UPDATE_LABELS: Record<string, string> = {
@@ -1068,30 +1075,30 @@ const TIMING_LABELS: Record<string, string> = {
         <z-questionnaire-title>What should the agent build next?</z-questionnaire-title>
         <z-questionnaire-description>Choose a direction or describe another task.</z-questionnaire-description>
         <z-questionnaire-choices>
-          <z-questionnaire-choice zValue="tool-call-timeline">
+          <z-questionnaire-choice zValue="tool-calls">
             <span>Tool call timeline</span>
             <span data-slot="questionnaire-choice-description" class="text-muted-foreground">
               Show what the agent ran and what came back.
             </span>
           </z-questionnaire-choice>
-          <z-questionnaire-choice zValue="approval-checkpoints">
+          <z-questionnaire-choice zValue="approvals">
             <span>Approval checkpoints</span>
             <span data-slot="questionnaire-choice-description" class="text-muted-foreground">
               Ask before sensitive or destructive actions.
             </span>
           </z-questionnaire-choice>
-          <z-questionnaire-choice zValue="sub-agent-handoffs">
+          <z-questionnaire-choice zValue="handoffs">
             <span>Sub-agent handoffs</span>
             <span data-slot="questionnaire-choice-description" class="text-muted-foreground">
               Make delegated work and results easier to follow.
             </span>
           </z-questionnaire-choice>
-          <z-questionnaire-input placeholder="Describe another feature..." aria-label="Next task" />
+          <z-questionnaire-input placeholder="Describe another feature..." aria-label="Describe another feature" />
         </z-questionnaire-choices>
         <z-questionnaire-error />
       </z-questionnaire-item>
 
-      <z-questionnaire-item zName="updates" zMultiple>
+      <z-questionnaire-item zName="signals" zMultiple>
         <z-questionnaire-title>What should every progress update include?</z-questionnaire-title>
         <z-questionnaire-description>Select all that apply, or skip this question.</z-questionnaire-description>
         <z-questionnaire-choices>
@@ -1103,7 +1110,7 @@ const TIMING_LABELS: Record<string, string> = {
         <z-questionnaire-error />
       </z-questionnaire-item>
 
-      <z-questionnaire-item zName="start" zRequired>
+      <z-questionnaire-item zName="timing" zRequired>
         <z-questionnaire-title>When should work begin?</z-questionnaire-title>
         <z-questionnaire-description>Choose one option.</z-questionnaire-description>
         <z-questionnaire-choices>
@@ -1174,25 +1181,26 @@ import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
 import { ZardSonnerService } from '../../sonner';
 import { ZardQuestionnaireImports } from '../questionnaire.imports';
+import type { ZardQuestionnaireAnswers, ZardQuestionnaireItem } from '../questionnaire.types';
 
 @Component({
-  selector: 'z-demo-questionnaire-default',
+  selector: 'z-demo-questionnaire-multiple-selection',
   imports: [ZardQuestionnaireImports],
   template: `
-    <z-questionnaire zShortcuts="letters">
+    <z-questionnaire [zItems]="items" zShortcuts="letters" (zSubmit)="save($event)">
       <z-questionnaire-item zName="stack" zRequired zMultiple>
         <z-questionnaire-title>What context should the agent inspect?</z-questionnaire-title>
         <z-questionnaire-choices>
-          <z-questionnaire-choice zValue="source-files">Relevant source files</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="source">Relevant source files</z-questionnaire-choice>
           <z-questionnaire-choice zValue="tests">Existing tests</z-questionnaire-choice>
-          <z-questionnaire-choice zValue="architecture">Architecture documentation</z-questionnaire-choice>
-          <z-questionnaire-choice zValue="commit-history">Recent commit history</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="docs">Architecture documentation</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="history">Recent commit history</z-questionnaire-choice>
         </z-questionnaire-choices>
         <z-questionnaire-error />
       </z-questionnaire-item>
 
       <z-questionnaire-actions>
-        <button type="submit" z-questionnaire-submit>Finish</button>
+        <button type="submit" z-questionnaire-submit>Share context</button>
       </z-questionnaire-actions>
     </z-questionnaire>
   `,
@@ -1201,6 +1209,279 @@ import { ZardQuestionnaireImports } from '../questionnaire.imports';
 })
 export class ZardDemoQuestionnaireMultipleSelectionComponent {
   private readonly sonner = inject(ZardSonnerService);
+
+  readonly items: ZardQuestionnaireItem[] = [{ name: 'stack', required: true, multiple: true }];
+
+  save(answers: ZardQuestionnaireAnswers): void {
+    const context = answers['stack'];
+
+    this.sonner.show('Context selected', {
+      description: `Context: ${Array.isArray(context) ? context.join(', ') : context}`,
+    });
+  }
+}
+```
+
+### Freeform Answer
+
+Compose `QuestionnaireInput` with fixed choices when the user can provide another answer.
+
+```angular-ts
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+
+import { ZardSonnerService } from '../../sonner';
+import { ZardQuestionnaireImports } from '../questionnaire.imports';
+import type { ZardQuestionnaireAnswers } from '../questionnaire.types';
+
+@Component({
+  selector: 'z-demo-questionnaire-freeform-answer',
+  imports: [ZardQuestionnaireImports],
+  template: `
+    <z-questionnaire (zSubmit)="save($event)">
+      <z-questionnaire-item zName="approach" [zRequired]="true">
+        <z-questionnaire-title>How should the agent approach this refactor?</z-questionnaire-title>
+        <z-questionnaire-description>
+          Choose a strategy or write a more specific instruction.
+        </z-questionnaire-description>
+
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="incremental">Make smallest safe change</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="module">Refactor one module at a time</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="rewrite">Replace the implementation completely</z-questionnaire-choice>
+          <z-questionnaire-input placeholder="Describe another approach..." aria-label="Describe another approach" />
+        </z-questionnaire-choices>
+
+        <z-questionnaire-error />
+      </z-questionnaire-item>
+
+      <z-questionnaire-actions>
+        <button type="submit" z-questionnaire-submit>Use this approach</button>
+      </z-questionnaire-actions>
+    </z-questionnaire>
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class ZardDemoQuestionnaireFreeformAnswerComponent {
+  private readonly sonner = inject(ZardSonnerService);
+
+  save(answers: ZardQuestionnaireAnswers): void {
+    const context = answers['approach'];
+
+    this.sonner.show('Approach selected', {
+      description: `Context: ${Array.isArray(context) ? context.join(', ') : context}`,
+    });
+  }
+}
+```
+
+### Explicit Skip
+
+Add `QuestionnaireSkip` when an optional item may be intentionally left unanswered.
+
+```angular-ts
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+
+import { ZardSonnerService } from '@/shared/components/sonner/sonner.service';
+
+import { ZardQuestionnaireImports } from '../questionnaire.imports';
+import type { ZardQuestionnaireAnswer, ZardQuestionnaireAnswers, ZardQuestionnaireItem } from '../questionnaire.types';
+
+const TASK_LABELS: Record<string, string> = {
+  feature: 'new feature',
+  bug: 'bug fix',
+  refactor: 'refactor',
+};
+
+const CONSTRAINTS_LABELS: Record<string, string> = {
+  'no-dependencies': 'do not add dependencies',
+  'no-migrations': 'do not change the database',
+  'preserve-api': 'preserve the public API',
+};
+
+const REVIEW_LABELS: Record<string, string> = {
+  tests: 'run the test suite',
+  diff: 'review the final diff',
+  both: 'tests and diff review',
+};
+
+@Component({
+  selector: 'z-demo-questionnaire-explicit-skip',
+  imports: [ZardQuestionnaireImports],
+  template: `
+    <z-questionnaire [zItems]="items" zShortcuts="letters" (zSubmit)="save($event)">
+      <z-questionnaire-progress />
+
+      <z-questionnaire-item zName="task" zRequired>
+        <z-questionnaire-title>What kind of change is this?</z-questionnaire-title>
+        <z-questionnaire-description>Choose the category that best describes the work.</z-questionnaire-description>
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="feature">New feature</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="bug">Bug fix</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="refactor">Refactor</z-questionnaire-choice>
+        </z-questionnaire-choices>
+        <z-questionnaire-error />
+      </z-questionnaire-item>
+
+      <z-questionnaire-item zName="constraints">
+        <z-questionnaire-title>Are there any implementation constraints?</z-questionnaire-title>
+        <z-questionnaire-description>
+          Answer if needed, or intentionally skip this question.
+        </z-questionnaire-description>
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="no-dependencies">Do not add dependencies</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="no-migrations">Do not change the database</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="preserve-api">Preserve the public API</z-questionnaire-choice>
+          <z-questionnaire-input
+            placeholder="Describe another constraint..."
+            aria-label="Another implementation constraint"
+          />
+        </z-questionnaire-choices>
+        <z-questionnaire-error />
+      </z-questionnaire-item>
+
+      <z-questionnaire-item zName="review" zRequired>
+        <z-questionnaire-title>How should the work be reviewed?</z-questionnaire-title>
+        <z-questionnaire-description>
+          Choose the checks the agent should complete before handoff.
+        </z-questionnaire-description>
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="tests">Run the test suite</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="diff">Review the final diff</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="both">Tests and diff review</z-questionnaire-choice>
+        </z-questionnaire-choices>
+        <z-questionnaire-error />
+      </z-questionnaire-item>
+
+      <z-questionnaire-actions>
+        <button type="button" z-questionnaire-previous>Back</button>
+        <button type="button" z-questionnaire-skip>Skip</button>
+        <button type="button" z-questionnaire-next>Next</button>
+        <button type="submit" z-questionnaire-submit>Submit brief</button>
+      </z-questionnaire-actions>
+    </z-questionnaire>
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block w-full' },
+})
+export class ZardDemoQuestionnaireExplicitSkipComponent {
+  private readonly sonner = inject(ZardSonnerService);
+
+  readonly items: ZardQuestionnaireItem[] = [
+    { name: 'task', required: true },
+    { name: 'constraints', required: false },
+    { name: 'review', required: true },
+  ];
+
+  save(answers: ZardQuestionnaireAnswers): void {
+    this.sonner.show('Agent brief submitted', {
+      description: [
+        `Task: ${this.formatTask(answers['task'])}`,
+        `Constraints: ${this.formatConstraints(answers['constraints'])}`,
+        `Review: ${this.formatReview(answers['review'])}`,
+      ].join(' · '),
+    });
+  }
+
+  private formatTask(answer: ZardQuestionnaireAnswer | undefined): string {
+    const value = this.singleValue(answer);
+    return value ? (TASK_LABELS[value] ?? value) : 'None';
+  }
+
+  private formatConstraints(answer: ZardQuestionnaireAnswer | undefined): string {
+    const values = Array.isArray(answer) ? answer : answer ? [answer] : [];
+    return values.length ? values.map(value => CONSTRAINTS_LABELS[value] ?? value).join(', ') : 'Skipped';
+  }
+
+  private formatReview(answer: ZardQuestionnaireAnswer | undefined): string {
+    const value = this.singleValue(answer);
+    return value ? (REVIEW_LABELS[value] ?? value) : 'None';
+  }
+
+  private singleValue(answer: ZardQuestionnaireAnswer | undefined): string | undefined {
+    return Array.isArray(answer) ? answer[0] : answer;
+  }
+}
+```
+
+### Shortcuts
+
+Assign a letter or number key to each answer with `shortcuts`.
+
+```angular-ts
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+
+import { ZardComboboxImports } from '../../combobox';
+import { ZardSonnerService } from '../../sonner';
+import { ZardQuestionnaireImports } from '../questionnaire.imports';
+import type {
+  ZardQuestionnaireAnswers,
+  ZardQuestionnaireItem,
+  ZardQuestionnaireShortcutMode,
+} from '../questionnaire.types';
+
+@Component({
+  selector: 'z-demo-questionnaire-shortcuts',
+  imports: [ZardQuestionnaireImports, ZardComboboxImports],
+  template: `
+    <div>
+      <z-combobox [(zValue)]="value">
+        <z-combobox-input />
+        <z-combobox-content>
+          <z-combobox-list>
+            <z-combobox-item zValue="letters">Letters</z-combobox-item>
+            <z-combobox-item zValue="numbers">Numbers</z-combobox-item>
+            <z-combobox-item zValue="none">None</z-combobox-item>
+          </z-combobox-list>
+        </z-combobox-content>
+      </z-combobox>
+      <div>
+        <z-questionnaire [zItems]="items()" [zShortcuts]="shortcutMode()" (zSubmit)="save($event)">
+          <z-questionnaire-item zName="approach" [zRequired]="true">
+            <z-questionnaire-title>How should the agent approach this refactor?</z-questionnaire-title>
+            <z-questionnaire-description>
+              Choose a strategy or write a more specific instruction.
+            </z-questionnaire-description>
+
+            <z-questionnaire-choices>
+              <z-questionnaire-choice zValue="incremental">Make smallest safe change</z-questionnaire-choice>
+              <z-questionnaire-choice zValue="module">Refactor one module at a time</z-questionnaire-choice>
+              <z-questionnaire-choice zValue="rewrite">Replace the implementation completely</z-questionnaire-choice>
+              <z-questionnaire-input
+                placeholder="Describe another approach..."
+                aria-label="Describe another approach"
+              />
+            </z-questionnaire-choices>
+
+            <z-questionnaire-error />
+          </z-questionnaire-item>
+
+          <z-questionnaire-actions>
+            <button type="submit" z-questionnaire-submit>Use this approach</button>
+          </z-questionnaire-actions>
+        </z-questionnaire>
+      </div>
+    </div>
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'flex w-full flex-col gap-6' },
+})
+export class ZardDemoQuestionnaireShortcutsComponent {
+  private readonly sonner = inject(ZardSonnerService);
+
+  readonly items = signal<readonly ZardQuestionnaireItem[]>([{ name: 'approach', required: true }]);
+  readonly value = signal<string | string[] | null>('letters');
+  readonly shortcutMode = computed<ZardQuestionnaireShortcutMode>(() => {
+    const value = this.value();
+    return value === 'letters' || value === 'numbers' ? value : 'none';
+  });
+
+  save(answers: ZardQuestionnaireAnswers): void {
+    const context = answers['approach'];
+
+    this.sonner.show('Next action selected', {
+      description: `Context: ${Array.isArray(context) ? context.join(', ') : context}`,
+    });
+  }
 }
 ```
 
