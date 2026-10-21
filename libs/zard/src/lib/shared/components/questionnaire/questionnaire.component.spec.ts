@@ -51,6 +51,7 @@ class InitialActiveItemHostComponent {
   imports: [
     ZardQuestionnaireChoiceComponent,
     ZardQuestionnaireComponent,
+    ZardQuestionnaireErrorComponent,
     ZardQuestionnaireItemComponent,
     ZardQuestionnaireNextDirective,
   ],
@@ -138,6 +139,7 @@ class DisabledItemHostComponent {
   imports: [
     ZardQuestionnaireChoiceComponent,
     ZardQuestionnaireComponent,
+    ZardQuestionnaireErrorComponent,
     ZardQuestionnaireItemComponent,
     ZardQuestionnaireNextDirective,
     ZardQuestionnairePreviousDirective,
@@ -173,6 +175,7 @@ class DisabledItemHostComponent {
             <option>Option</option>
           </select>
           <div contenteditable="true" [attr.data-testid]="item.name + '-typing-contenteditable'"></div>
+          <z-questionnaire-error />
         </z-questionnaire-item>
       }
 
@@ -206,23 +209,57 @@ class QuestionnaireBehaviorHostComponent {
     ZardQuestionnaireTitleComponent,
   ],
   template: `
-    <z-questionnaire class="custom-root" [zItems]="items">
-      <z-questionnaire-progress class="custom-progress" />
-      <z-questionnaire-item class="custom-item" zName="first">
-        <z-questionnaire-title class="custom-title">Question title</z-questionnaire-title>
-        <z-questionnaire-description class="custom-description">Question description</z-questionnaire-description>
-        <z-questionnaire-choices class="custom-choices">
-          <z-questionnaire-choice class="custom-choice" zValue="answer" zDisabled>Answer</z-questionnaire-choice>
-          <z-questionnaire-input class="custom-input" placeholder="Other answer" />
+    <z-questionnaire [zItems]="items">
+      <z-questionnaire-progress />
+      <z-questionnaire-item zName="first">
+        <z-questionnaire-title>Question title</z-questionnaire-title>
+        <z-questionnaire-description>Question description</z-questionnaire-description>
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="answer" zDisabled>Answer</z-questionnaire-choice>
+          <z-questionnaire-input placeholder="Other answer" />
         </z-questionnaire-choices>
-        <z-questionnaire-error class="custom-error">Choose an answer.</z-questionnaire-error>
+        <z-questionnaire-error>Choose an answer.</z-questionnaire-error>
       </z-questionnaire-item>
-      <z-questionnaire-actions class="custom-actions">Actions</z-questionnaire-actions>
+      <z-questionnaire-actions>Actions</z-questionnaire-actions>
     </z-questionnaire>
   `,
   changeDetection: ChangeDetectionStrategy.Eager,
 })
 class QuestionnaireStylesHostComponent {
+  readonly items: ZardQuestionnaireItem[] = [{ name: 'first', required: true }];
+}
+
+@Component({
+  imports: [
+    ZardQuestionnaireChoiceComponent,
+    ZardQuestionnaireChoicesComponent,
+    ZardQuestionnaireComponent,
+    ZardQuestionnaireDescriptionComponent,
+    ZardQuestionnaireActionsComponent,
+    ZardQuestionnaireErrorComponent,
+    ZardQuestionnaireInputComponent,
+    ZardQuestionnaireItemComponent,
+    ZardQuestionnaireProgressComponent,
+    ZardQuestionnaireTitleComponent,
+  ],
+  template: `
+    <z-questionnaire class="max-w-xl" [zItems]="items">
+      <z-questionnaire-progress class="text-sm" />
+      <z-questionnaire-item class="gap-6" zName="first">
+        <z-questionnaire-title class="text-lg">Question title</z-questionnaire-title>
+        <z-questionnaire-description class="text-base">Question description</z-questionnaire-description>
+        <z-questionnaire-choices class="gap-3">
+          <z-questionnaire-choice class="rounded-md" zValue="answer">Answer</z-questionnaire-choice>
+          <z-questionnaire-input class="h-10" placeholder="Other answer" />
+        </z-questionnaire-choices>
+        <z-questionnaire-error class="mt-4">Choose an answer.</z-questionnaire-error>
+      </z-questionnaire-item>
+      <z-questionnaire-actions class="gap-4">Actions</z-questionnaire-actions>
+    </z-questionnaire>
+  `,
+  changeDetection: ChangeDetectionStrategy.Eager,
+})
+class QuestionnaireStyleOverridesHostComponent {
   readonly items: ZardQuestionnaireItem[] = [{ name: 'first' }];
 }
 
@@ -325,6 +362,40 @@ describe('ZardQuestionnaireComponent', () => {
     clickAction(fixture, ZardQuestionnaireNextDirective);
 
     expect(fixture.componentInstance.active).toBe('next');
+  });
+
+  it('should show the default error message only while the active item is invalid', async () => {
+    const fixture = await createBehaviorFixture([
+      { name: 'required', required: true },
+      { name: 'next', required: true },
+    ]);
+    const error = getItem(fixture, 'required').querySelector('[data-slot="questionnaire-error"]') as HTMLElement;
+
+    expect(error.hidden).toBe(true);
+
+    clickAction(fixture, ZardQuestionnaireNextDirective);
+
+    expect(error.hidden).toBe(false);
+    expect(error.textContent?.trim()).toBe('Choose an answer to continue.');
+
+    getChoiceInput(fixture, 'required', 'a').click();
+    fixture.detectChanges();
+
+    expect(error.hidden).toBe(true);
+  });
+
+  it('should preserve a custom projected error message', async () => {
+    await TestBed.configureTestingModule({ imports: [QuestionnaireStylesHostComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(QuestionnaireStylesHostComponent);
+    fixture.detectChanges();
+
+    const form = fixture.nativeElement.querySelector('form') as HTMLFormElement;
+    const error = fixture.nativeElement.querySelector('[data-slot="questionnaire-error"]') as HTMLElement;
+    form.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+
+    expect(error.hidden).toBe(false);
+    expect(error.textContent?.trim()).toBe('Choose an answer.');
   });
 
   it('should only pass an unanswered optional item when it is skipped', async () => {
@@ -790,7 +861,7 @@ describe('ZardQuestionnaireComponent', () => {
     expect(getItem(fixture, 'first').querySelector('fieldset')).not.toBeNull();
   });
 
-  it('should apply questionnaire variants and merge consumer classes onto the rendered parts', async () => {
+  it('should apply the default questionnaire variants to the rendered parts', async () => {
     await TestBed.configureTestingModule({ imports: [QuestionnaireStylesHostComponent] }).compileComponents();
     const fixture = TestBed.createComponent(QuestionnaireStylesHostComponent);
     fixture.detectChanges();
@@ -813,34 +884,65 @@ describe('ZardQuestionnaireComponent', () => {
     const actions = fixture.nativeElement.querySelector('[data-slot="questionnaire-actions"]') as HTMLElement;
 
     expect(form.classList).toContain('flex');
-    expect(form.classList).toContain('custom-root');
+    expect(form.classList).toContain('max-w-md');
     expect(questionnaireHost.classList).toContain('block');
     expect(questionnaireHost.classList).toContain('w-full');
     expect(progress.classList).toContain('tabular-nums');
-    expect(progress.classList).toContain('custom-progress');
+    expect(progress.classList).toContain('text-xs');
     expect(item.classList).toContain('flex-col');
     expect(item.classList).toContain('w-full');
-    expect(item.classList).toContain('custom-item');
+    expect(item.classList).toContain('gap-4');
     expect(itemHost.classList).toContain('contents');
     expect(title.classList).toContain('font-medium');
-    expect(title.classList).toContain('custom-title');
+    expect(title.classList).toContain('text-base/snug');
     expect(description.classList).toContain('text-muted-foreground');
-    expect(description.classList).toContain('custom-description');
+    expect(description.classList).toContain('text-sm');
     expect(choices.classList).toContain('grid');
-    expect(choices.classList).toContain('custom-choices');
+    expect(choices.classList).toContain('gap-2');
     expect(choice.classList).toContain('border-input');
-    expect(choice.classList).toContain('custom-choice');
+    expect(choice.classList).toContain('rounded-lg');
     expect(choice.getAttribute('data-disabled')).toBe('');
     expect(choiceLabel.classList).toContain('flex-1');
     expect(inputWrapper.classList).toContain('relative');
     expect(inputWrapper.classList).toContain('block');
     expect(input.classList).toContain('border-input');
-    expect(input.classList).toContain('custom-input');
+    expect(input.classList).toContain('h-8');
     expect(input.name).toBe('first');
     expect(input.placeholder).toBe('Other answer');
     expect(error.classList).toContain('text-destructive');
-    expect(error.classList).toContain('custom-error');
+    expect(error.classList).toContain('mt-2');
     expect(actions.classList).toContain('grid');
-    expect(actions.classList).toContain('custom-actions');
+    expect(actions.classList).toContain('gap-2');
+  });
+
+  it('should merge consumer utility classes and remove conflicting defaults', async () => {
+    await TestBed.configureTestingModule({ imports: [QuestionnaireStyleOverridesHostComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(QuestionnaireStyleOverridesHostComponent);
+    fixture.detectChanges();
+
+    const classListFor = (slot: string): DOMTokenList =>
+      (fixture.nativeElement.querySelector(`[data-slot="${slot}"]`) as HTMLElement).classList;
+    const itemClasses = (fixture.nativeElement.querySelector('fieldset') as HTMLFieldSetElement).classList;
+
+    expect(classListFor('questionnaire')).toContain('max-w-xl');
+    expect(classListFor('questionnaire')).not.toContain('max-w-md');
+    expect(classListFor('questionnaire-progress')).toContain('text-sm');
+    expect(classListFor('questionnaire-progress')).not.toContain('text-xs');
+    expect(itemClasses).toContain('gap-6');
+    expect(itemClasses).not.toContain('gap-4');
+    expect(classListFor('questionnaire-title')).toContain('text-lg');
+    expect(classListFor('questionnaire-title')).not.toContain('text-base/snug');
+    expect(classListFor('questionnaire-description')).toContain('text-base');
+    expect(classListFor('questionnaire-description')).not.toContain('text-sm');
+    expect(classListFor('questionnaire-choices')).toContain('gap-3');
+    expect(classListFor('questionnaire-choices')).not.toContain('gap-2');
+    expect(classListFor('questionnaire-choice')).toContain('rounded-md');
+    expect(classListFor('questionnaire-choice')).not.toContain('rounded-lg');
+    expect(classListFor('questionnaire-input')).toContain('h-10');
+    expect(classListFor('questionnaire-input')).not.toContain('h-8');
+    expect(classListFor('questionnaire-error')).toContain('mt-4');
+    expect(classListFor('questionnaire-error')).not.toContain('mt-2');
+    expect(classListFor('questionnaire-actions')).toContain('gap-4');
+    expect(classListFor('questionnaire-actions')).not.toContain('gap-2');
   });
 });

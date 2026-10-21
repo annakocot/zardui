@@ -22,9 +22,7 @@ import type { ZardQuestionnaireItem } from './questionnaire.types';
   template: `
     <z-questionnaire [zItems]="items" [(zActive)]="active">
       <input type="radio" name="first" value="answered" checked />
-      <button class="custom-previous" type="button" z-questionnaire-previous [disabled]="previousDisabled">
-        Previous
-      </button>
+      <button type="button" z-questionnaire-previous [disabled]="previousDisabled">Previous</button>
       <button type="button" z-questionnaire-skip [disabled]="skipDisabled">Skip</button>
       <button type="button" z-questionnaire-next [disabled]="nextDisabled">Next</button>
       <button type="submit" z-questionnaire-submit [disabled]="submitDisabled">Submit</button>
