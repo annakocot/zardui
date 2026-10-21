@@ -6,9 +6,9 @@ import { ZardQuestionnaireImports } from '../questionnaire.imports';
 import type { ZardQuestionnaireAnswer, ZardQuestionnaireAnswers, ZardQuestionnaireItem } from '../questionnaire.types';
 
 const DIRECTION_LABELS: Record<string, string> = {
-  'tool-call-timeline': 'tool call timeline',
-  'approval-checkpoints': 'approval checkpoints',
-  'sub-agent-handoffs': 'sub-agent handoffs',
+  'tool-calls': 'tool call timeline',
+  approvals: 'approval checkpoints',
+  handoffs: 'sub-agent handoffs',
 };
 
 const UPDATE_LABELS: Record<string, string> = {
@@ -35,30 +35,30 @@ const TIMING_LABELS: Record<string, string> = {
         <z-questionnaire-title>What should the agent build next?</z-questionnaire-title>
         <z-questionnaire-description>Choose a direction or describe another task.</z-questionnaire-description>
         <z-questionnaire-choices>
-          <z-questionnaire-choice zValue="tool-call-timeline">
+          <z-questionnaire-choice zValue="tool-calls">
             <span>Tool call timeline</span>
             <span data-slot="questionnaire-choice-description" class="text-muted-foreground">
               Show what the agent ran and what came back.
             </span>
           </z-questionnaire-choice>
-          <z-questionnaire-choice zValue="approval-checkpoints">
+          <z-questionnaire-choice zValue="approvals">
             <span>Approval checkpoints</span>
             <span data-slot="questionnaire-choice-description" class="text-muted-foreground">
               Ask before sensitive or destructive actions.
             </span>
           </z-questionnaire-choice>
-          <z-questionnaire-choice zValue="sub-agent-handoffs">
+          <z-questionnaire-choice zValue="handoffs">
             <span>Sub-agent handoffs</span>
             <span data-slot="questionnaire-choice-description" class="text-muted-foreground">
               Make delegated work and results easier to follow.
             </span>
           </z-questionnaire-choice>
-          <z-questionnaire-input placeholder="Describe another feature..." aria-label="Next task" />
+          <z-questionnaire-input placeholder="Describe another feature..." aria-label="Describe another feature" />
         </z-questionnaire-choices>
         <z-questionnaire-error />
       </z-questionnaire-item>
 
-      <z-questionnaire-item zName="updates" zMultiple>
+      <z-questionnaire-item zName="signals" zMultiple>
         <z-questionnaire-title>What should every progress update include?</z-questionnaire-title>
         <z-questionnaire-description>Select all that apply, or skip this question.</z-questionnaire-description>
         <z-questionnaire-choices>
@@ -70,7 +70,7 @@ const TIMING_LABELS: Record<string, string> = {
         <z-questionnaire-error />
       </z-questionnaire-item>
 
-      <z-questionnaire-item zName="start" zRequired>
+      <z-questionnaire-item zName="timing" zRequired>
         <z-questionnaire-title>When should work begin?</z-questionnaire-title>
         <z-questionnaire-description>Choose one option.</z-questionnaire-description>
         <z-questionnaire-choices>
