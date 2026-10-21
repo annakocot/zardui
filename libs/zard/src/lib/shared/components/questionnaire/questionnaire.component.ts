@@ -27,14 +27,21 @@ import { questionnaireVariants } from './questionnaire.variants';
 @Component({
   selector: 'z-questionnaire',
   template: `
-    <form #form (input)="handleAnswerChange($event)" (submit)="handleSubmit($event)" (reset)="handleReset()">
+    <form
+      #form
+      data-slot="questionnaire"
+      [class]="classes()"
+      (input)="handleAnswerChange($event)"
+      (submit)="handleSubmit($event)"
+      (reset)="handleReset()"
+    >
       <ng-content />
     </form>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   host: {
-    '[class]': 'classes()',
+    class: 'block w-full',
     '[attr.data-shortcuts]': 'zShortcuts() === "none" ? null : zShortcuts()',
     '(document:keydown)': 'handleShortcut($event)',
   },

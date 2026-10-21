@@ -3,7 +3,12 @@ import { type ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 
 import {
+  ZardQuestionnaireChoicesComponent,
   ZardQuestionnaireComponent,
+  ZardQuestionnaireDescriptionComponent,
+  ZardQuestionnaireActionsComponent,
+  ZardQuestionnaireErrorComponent,
+  ZardQuestionnaireInputComponent,
   ZardQuestionnaireItemComponent,
   ZardQuestionnaireChoiceComponent,
   ZardQuestionnaireNextDirective,
@@ -11,6 +16,7 @@ import {
   ZardQuestionnaireProgressComponent,
   ZardQuestionnaireSkipDirective,
   ZardQuestionnaireSubmitDirective,
+  ZardQuestionnaireTitleComponent,
 } from './questionnaire.imports';
 import type {
   ZardQuestionnaireAnswers,
@@ -184,6 +190,40 @@ class QuestionnaireBehaviorHostComponent {
   submitted: ZardQuestionnaireAnswers | undefined;
   shortcuts: ZardQuestionnaireShortcutMode = 'letters';
   firstChoiceDisabled = false;
+}
+
+@Component({
+  imports: [
+    ZardQuestionnaireChoiceComponent,
+    ZardQuestionnaireChoicesComponent,
+    ZardQuestionnaireComponent,
+    ZardQuestionnaireDescriptionComponent,
+    ZardQuestionnaireActionsComponent,
+    ZardQuestionnaireErrorComponent,
+    ZardQuestionnaireInputComponent,
+    ZardQuestionnaireItemComponent,
+    ZardQuestionnaireProgressComponent,
+    ZardQuestionnaireTitleComponent,
+  ],
+  template: `
+    <z-questionnaire class="custom-root" [zItems]="items">
+      <z-questionnaire-progress class="custom-progress" />
+      <z-questionnaire-item class="custom-item" zName="first">
+        <z-questionnaire-title class="custom-title">Question title</z-questionnaire-title>
+        <z-questionnaire-description class="custom-description">Question description</z-questionnaire-description>
+        <z-questionnaire-choices class="custom-choices">
+          <z-questionnaire-choice class="custom-choice" zValue="answer" zDisabled>Answer</z-questionnaire-choice>
+          <z-questionnaire-input class="custom-input" placeholder="Other answer" />
+        </z-questionnaire-choices>
+        <z-questionnaire-error class="custom-error">Choose an answer.</z-questionnaire-error>
+      </z-questionnaire-item>
+      <z-questionnaire-actions class="custom-actions">Actions</z-questionnaire-actions>
+    </z-questionnaire>
+  `,
+  changeDetection: ChangeDetectionStrategy.Eager,
+})
+class QuestionnaireStylesHostComponent {
+  readonly items: ZardQuestionnaireItem[] = [{ name: 'first' }];
 }
 
 async function createBehaviorFixture(
@@ -511,6 +551,35 @@ describe('ZardQuestionnaireComponent', () => {
     expect(getChoiceInput(fixture, 'first', 'b').getAttribute('aria-keyshortcuts')).toBe('b');
   });
 
+  it('should display the assigned letter shortcuts on active choices', async () => {
+    const fixture = await createBehaviorFixture([{ name: 'first', required: true }]);
+    const shortcuts = fixture.nativeElement.querySelectorAll('[data-slot="questionnaire-choice-shortcut"]');
+
+    expect(Array.from(shortcuts, (shortcut: Element) => shortcut.textContent?.trim())).toEqual(['A', 'B']);
+    expect(Array.from(shortcuts, (shortcut: Element) => shortcut.getAttribute('aria-hidden'))).toEqual([
+      'true',
+      'true',
+    ]);
+  });
+
+  it('should display number shortcuts and hide shortcut badges when shortcuts are disabled', async () => {
+    const fixture = await createBehaviorFixture([{ name: 'first', required: true }]);
+    fixture.componentInstance.shortcuts = 'numbers';
+    fixture.detectChanges();
+
+    expect(
+      Array.from(
+        fixture.nativeElement.querySelectorAll('[data-slot="questionnaire-choice-shortcut"]'),
+        (shortcut: Element) => shortcut.textContent?.trim(),
+      ),
+    ).toEqual(['1', '2']);
+
+    fixture.componentInstance.shortcuts = 'none';
+    fixture.detectChanges();
+
+    expect(fixture.nativeElement.querySelector('[data-slot="questionnaire-choice-shortcut"]')).toBeNull();
+  });
+
   it('should clear an item error after the answer is corrected and Next is retried', async () => {
     const fixture = await createBehaviorFixture([
       { name: 'first', required: true },
@@ -719,5 +788,59 @@ describe('ZardQuestionnaireComponent', () => {
     const fixture = await createBehaviorFixture([{ name: 'first', required: true }]);
 
     expect(getItem(fixture, 'first').querySelector('fieldset')).not.toBeNull();
+  });
+
+  it('should apply questionnaire variants and merge consumer classes onto the rendered parts', async () => {
+    await TestBed.configureTestingModule({ imports: [QuestionnaireStylesHostComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(QuestionnaireStylesHostComponent);
+    fixture.detectChanges();
+
+    const form = fixture.nativeElement.querySelector('[data-slot="questionnaire"]') as HTMLFormElement;
+    const questionnaireHost = fixture.nativeElement.querySelector('z-questionnaire') as HTMLElement;
+    const progress = fixture.nativeElement.querySelector('[data-slot="questionnaire-progress"]') as HTMLElement;
+    const itemHost = fixture.nativeElement.querySelector('z-questionnaire-item') as HTMLElement;
+    const item = fixture.nativeElement.querySelector('fieldset') as HTMLFieldSetElement;
+    const title = fixture.nativeElement.querySelector('[data-slot="questionnaire-title"]') as HTMLElement;
+    const description = fixture.nativeElement.querySelector('[data-slot="questionnaire-description"]') as HTMLElement;
+    const choices = fixture.nativeElement.querySelector('[data-slot="questionnaire-choices"]') as HTMLElement;
+    const choice = fixture.nativeElement.querySelector('[data-slot="questionnaire-choice"]') as HTMLElement;
+    const choiceLabel = fixture.nativeElement.querySelector('[data-slot="questionnaire-choice-label"]') as HTMLElement;
+    const inputWrapper = fixture.nativeElement.querySelector(
+      '[data-slot="questionnaire-input-wrapper"]',
+    ) as HTMLElement;
+    const input = fixture.nativeElement.querySelector('[data-slot="questionnaire-input"]') as HTMLInputElement;
+    const error = fixture.nativeElement.querySelector('[data-slot="questionnaire-error"]') as HTMLElement;
+    const actions = fixture.nativeElement.querySelector('[data-slot="questionnaire-actions"]') as HTMLElement;
+
+    expect(form.classList).toContain('flex');
+    expect(form.classList).toContain('custom-root');
+    expect(questionnaireHost.classList).toContain('block');
+    expect(questionnaireHost.classList).toContain('w-full');
+    expect(progress.classList).toContain('tabular-nums');
+    expect(progress.classList).toContain('custom-progress');
+    expect(item.classList).toContain('flex-col');
+    expect(item.classList).toContain('w-full');
+    expect(item.classList).toContain('custom-item');
+    expect(itemHost.classList).toContain('contents');
+    expect(title.classList).toContain('font-medium');
+    expect(title.classList).toContain('custom-title');
+    expect(description.classList).toContain('text-muted-foreground');
+    expect(description.classList).toContain('custom-description');
+    expect(choices.classList).toContain('grid');
+    expect(choices.classList).toContain('custom-choices');
+    expect(choice.classList).toContain('border-input');
+    expect(choice.classList).toContain('custom-choice');
+    expect(choice.getAttribute('data-disabled')).toBe('');
+    expect(choiceLabel.classList).toContain('flex-1');
+    expect(inputWrapper.classList).toContain('relative');
+    expect(inputWrapper.classList).toContain('block');
+    expect(input.classList).toContain('border-input');
+    expect(input.classList).toContain('custom-input');
+    expect(input.name).toBe('first');
+    expect(input.placeholder).toBe('Other answer');
+    expect(error.classList).toContain('text-destructive');
+    expect(error.classList).toContain('custom-error');
+    expect(actions.classList).toContain('grid');
+    expect(actions.classList).toContain('custom-actions');
   });
 });

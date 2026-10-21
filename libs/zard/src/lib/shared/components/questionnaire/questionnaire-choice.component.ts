@@ -14,11 +14,16 @@ import { mergeClasses } from '@/shared/utils/merge-classes';
 
 import { ZardQuestionnaireItemComponent } from './questionnaire-item.component';
 import { ZardQuestionnaireComponent } from './questionnaire.component';
+import {
+  questionnaireChoiceLabelVariants,
+  questionnaireChoiceShortcutVariants,
+  questionnaireChoiceVariants,
+} from './questionnaire.variants';
 
 @Component({
   selector: 'z-questionnaire-choice',
   template: `
-    <label>
+    <label class="contents">
       <input
         [type]="item.zMultiple() ? 'checkbox' : 'radio'"
         [name]="item.zName()"
@@ -27,13 +32,22 @@ import { ZardQuestionnaireComponent } from './questionnaire.component';
         [attr.aria-keyshortcuts]="questionnaire.shortcutFor(input, item.zName())"
         #input
       />
-      <ng-content />
+      <span data-slot="questionnaire-choice-label" [class]="labelClasses">
+        <ng-content />
+      </span>
+      @if (questionnaire.shortcutFor(input, item.zName()); as shortcut) {
+        <span data-slot="questionnaire-choice-shortcut" aria-hidden="true" [class]="shortcutClasses">
+          {{ shortcut.toUpperCase() }}
+        </span>
+      }
     </label>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   host: {
     'data-slot': 'questionnaire-choice',
+    '[attr.data-disabled]': 'disabledState() ? "" : null',
+    '[attr.data-invalid]': 'item.isInvalid() ? "" : null',
     '[class]': 'classes()',
   },
   exportAs: 'zQuestionnaireChoice',
@@ -47,5 +61,7 @@ export class ZardQuestionnaireChoiceComponent {
   readonly class = input<ClassValue>('');
 
   protected readonly disabledState = computed(() => this.zDisabled() || this.item.zDisabled());
-  protected readonly classes = computed(() => mergeClasses(this.class()));
+  protected readonly classes = computed(() => mergeClasses(questionnaireChoiceVariants(), this.class()));
+  protected readonly labelClasses = questionnaireChoiceLabelVariants();
+  protected readonly shortcutClasses = questionnaireChoiceShortcutVariants();
 }

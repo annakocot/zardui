@@ -1197,6 +1197,32 @@
         "attachment.imports.ts",
         "index.ts"
       ]
+    },
+    {
+      "name": "questionnaire",
+      "type": "registry:component",
+      "icons": {
+        "family": "lucide",
+        "symbols": [],
+        "tokens": []
+      },
+      "files": [
+        "questionnaire.component.ts",
+        "questionnaire.variants.ts",
+        "questionnaire-progress.component.ts",
+        "questionnaire-item.component.ts",
+        "questionnaire-choice.component.ts",
+        "questionnaire-choices.component.ts",
+        "questionnaire-title.component.ts",
+        "questionnaire-description.component.ts",
+        "questionnaire-actions.component.ts",
+        "questionnaire-error.component.ts",
+        "questionnaire-navigation.directive.ts",
+        "questionnaire-input.component.ts",
+        "questionnaire.types.ts",
+        "questionnaire.imports.ts",
+        "index.ts"
+      ]
     }
   ]
 }

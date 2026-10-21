@@ -22,7 +22,9 @@ import type { ZardQuestionnaireItem } from './questionnaire.types';
   template: `
     <z-questionnaire [zItems]="items" [(zActive)]="active">
       <input type="radio" name="first" value="answered" checked />
-      <button type="button" z-questionnaire-previous [disabled]="previousDisabled">Previous</button>
+      <button class="custom-previous" type="button" z-questionnaire-previous [disabled]="previousDisabled">
+        Previous
+      </button>
       <button type="button" z-questionnaire-skip [disabled]="skipDisabled">Skip</button>
       <button type="button" z-questionnaire-next [disabled]="nextDisabled">Next</button>
       <button type="submit" z-questionnaire-submit [disabled]="submitDisabled">Submit</button>
@@ -65,7 +67,11 @@ describe('questionnaire navigation directives', () => {
       expect(button.type).toBe('button');
       expect(button.dataset['slot']).toBe('questionnaire-previous');
       expect(button.disabled).toBe(true);
+      expect(button.hidden).toBe(true);
       expect(button.getAttribute('aria-disabled')).toBe('true');
+      expect(button.classList).toContain('border-border');
+      expect(button.classList).toContain('custom-previous');
+      expect(button.classList).toContain('col-start-1');
     });
 
     it('moves to the previous item when applicable', () => {
@@ -75,6 +81,7 @@ describe('questionnaire navigation directives', () => {
       const button = getButton(fixture, ZardQuestionnairePreviousDirective);
 
       expect(button.disabled).toBe(false);
+      expect(button.hidden).toBe(false);
       expect(button.getAttribute('aria-disabled')).toBeNull();
 
       button.click();
@@ -94,6 +101,7 @@ describe('questionnaire navigation directives', () => {
       fixture.detectChanges();
 
       expect(button.disabled).toBe(true);
+      expect(button.hidden).toBe(false);
       expect(fixture.componentInstance.active).toBe('optional');
     });
   });
@@ -107,7 +115,10 @@ describe('questionnaire navigation directives', () => {
       expect(button.type).toBe('button');
       expect(button.dataset['slot']).toBe('questionnaire-skip');
       expect(button.disabled).toBe(true);
+      expect(button.hidden).toBe(true);
       expect(button.getAttribute('aria-disabled')).toBe('true');
+      expect(button.classList).toContain('border-border');
+      expect(button.classList).toContain('col-start-2');
     });
 
     it('is enabled for an optional item and skips it', () => {
@@ -117,6 +128,7 @@ describe('questionnaire navigation directives', () => {
       const button = getButton(fixture, ZardQuestionnaireSkipDirective);
 
       expect(button.disabled).toBe(false);
+      expect(button.hidden).toBe(false);
       expect(button.getAttribute('aria-disabled')).toBeNull();
 
       button.click();
@@ -149,7 +161,10 @@ describe('questionnaire navigation directives', () => {
       expect(button.type).toBe('button');
       expect(button.dataset['slot']).toBe('questionnaire-next');
       expect(button.disabled).toBe(false);
+      expect(button.hidden).toBe(false);
       expect(button.getAttribute('aria-disabled')).toBeNull();
+      expect(button.classList).toContain('bg-primary');
+      expect(button.classList).toContain('col-start-3');
 
       button.click();
       fixture.detectChanges();
@@ -160,7 +175,10 @@ describe('questionnaire navigation directives', () => {
       fixture.detectChanges();
 
       expect(button.disabled).toBe(true);
+      expect(button.hidden).toBe(true);
       expect(button.getAttribute('aria-disabled')).toBe('true');
+      expect(button.classList).toContain('bg-primary');
+      expect(button.classList).toContain('col-start-3');
     });
 
     it('preserves a consumer disabled state and does not navigate', () => {
@@ -173,6 +191,7 @@ describe('questionnaire navigation directives', () => {
       fixture.detectChanges();
 
       expect(button.disabled).toBe(true);
+      expect(button.hidden).toBe(false);
       expect(fixture.componentInstance.active).toBe('first');
     });
   });
@@ -186,13 +205,17 @@ describe('questionnaire navigation directives', () => {
       expect(button.type).toBe('submit');
       expect(button.dataset['slot']).toBe('questionnaire-submit');
       expect(button.disabled).toBe(true);
+      expect(button.hidden).toBe(true);
       expect(button.getAttribute('aria-disabled')).toBe('true');
 
       fixture.componentInstance.active = 'last';
       fixture.detectChanges();
 
       expect(button.disabled).toBe(false);
+      expect(button.hidden).toBe(false);
       expect(button.getAttribute('aria-disabled')).toBeNull();
+      expect(button.classList).toContain('bg-primary');
+      expect(button.classList).toContain('col-start-3');
     });
 
     it('preserves a consumer disabled state', () => {
@@ -203,6 +226,7 @@ describe('questionnaire navigation directives', () => {
       const button = getButton(fixture, ZardQuestionnaireSubmitDirective);
 
       expect(button.disabled).toBe(true);
+      expect(button.hidden).toBe(false);
       expect(button.getAttribute('aria-disabled')).toBe('true');
     });
   });

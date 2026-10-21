@@ -13,23 +13,24 @@ import type { ClassValue } from 'clsx';
 import { mergeClasses } from '@/shared/utils/merge-classes';
 
 import { ZardQuestionnaireComponent } from './questionnaire.component';
+import { questionnaireItemVariants } from './questionnaire.variants';
 
 @Component({
   selector: 'z-questionnaire-item',
   template: `
-    <fieldset [disabled]="zDisabled()" [attr.aria-invalid]="isInvalid() ? 'true' : null">
+    <fieldset [disabled]="zDisabled()" [attr.aria-invalid]="isInvalid() ? 'true' : null" [class]="classes()">
       <ng-content />
     </fieldset>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   host: {
+    class: 'contents',
     'data-slot': 'questionnaire-item',
     '[attr.data-questionnaire-name]': 'zName()',
     '[attr.aria-invalid]': 'isInvalid() ? "true" : null',
     '[attr.data-disabled]': 'zDisabled() ? "" : null',
     '[hidden]': '!isActive()',
-    '[class]': 'classes()',
   },
   exportAs: 'zQuestionnaireItem',
 })
@@ -44,5 +45,5 @@ export class ZardQuestionnaireItemComponent {
 
   readonly isActive = computed(() => this.questionnaire.zActive() === this.zName() && !this.zDisabled());
   readonly isInvalid = computed(() => this.questionnaire.isInvalid(this.zName()));
-  protected readonly classes = computed(() => mergeClasses(this.class()));
+  protected readonly classes = computed(() => mergeClasses(questionnaireItemVariants(), this.class()));
 }

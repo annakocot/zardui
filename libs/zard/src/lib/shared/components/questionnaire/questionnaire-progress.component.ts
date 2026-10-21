@@ -5,6 +5,7 @@ import type { ClassValue } from 'clsx';
 import { mergeClasses } from '@/shared/utils/merge-classes';
 
 import { ZardQuestionnaireComponent } from './questionnaire.component';
+import { questionnaireProgressVariants } from './questionnaire.variants';
 
 @Component({
   selector: 'z-questionnaire-progress',
@@ -35,5 +36,5 @@ export class ZardQuestionnaireProgressComponent {
 
   readonly total = computed(() => this.questionnaire.enabledItems().length);
 
-  protected readonly classes = computed(() => mergeClasses(this.class()));
+  protected readonly classes = computed(() => mergeClasses(questionnaireProgressVariants(), this.class()));
 }
