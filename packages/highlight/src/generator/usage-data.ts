@@ -475,4 +475,10 @@ export const USAGE_DATA: Record<string, RawUsageData> = {
   </z-attachment-actions>
 </z-attachment>`,
   },
+  questionnaire: {
+    importCode: `import { ZardQuestionnaireImports } from '@/shared/components/questionnaire/questionnaire.imports';`,
+    templateCode: `<z-questionnaire [zItems]="items">
+  <!-- questionnaire items -->
+</z-questionnaire>`,
+  },
 };

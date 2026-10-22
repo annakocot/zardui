@@ -232,6 +232,28 @@ class QuestionnaireStylesHostComponent {
 @Component({
   imports: [
     ZardQuestionnaireChoiceComponent,
+    ZardQuestionnaireComponent,
+    ZardQuestionnaireErrorComponent,
+    ZardQuestionnaireItemComponent,
+  ],
+  template: `
+    <z-questionnaire [zItems]="items">
+      <z-questionnaire-item zName="first" zRequired [zInvalid]="invalid">
+        <z-questionnaire-choice zValue="valid-answer">Valid answer</z-questionnaire-choice>
+        <z-questionnaire-error>That answer is not valid.</z-questionnaire-error>
+      </z-questionnaire-item>
+    </z-questionnaire>
+  `,
+  changeDetection: ChangeDetectionStrategy.Eager,
+})
+class QuestionnaireExternalValidationHostComponent {
+  readonly items: ZardQuestionnaireItem[] = [{ name: 'first', required: true }];
+  invalid = false;
+}
+
+@Component({
+  imports: [
+    ZardQuestionnaireChoiceComponent,
     ZardQuestionnaireChoicesComponent,
     ZardQuestionnaireComponent,
     ZardQuestionnaireDescriptionComponent,
@@ -396,6 +418,88 @@ describe('ZardQuestionnaireComponent', () => {
 
     expect(error.hidden).toBe(false);
     expect(error.textContent?.trim()).toBe('Choose an answer.');
+  });
+
+  it('should expose externally controlled item validation state', async () => {
+    await TestBed.configureTestingModule({
+      imports: [QuestionnaireExternalValidationHostComponent],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(QuestionnaireExternalValidationHostComponent);
+    fixture.detectChanges();
+
+    const item = fixture.nativeElement.querySelector('z-questionnaire-item') as HTMLElement;
+    const fieldset = item.querySelector('fieldset') as HTMLFieldSetElement;
+    const error = item.querySelector('[data-slot="questionnaire-error"]') as HTMLElement;
+
+    expect(item.getAttribute('aria-invalid')).toBeNull();
+    expect(fieldset.getAttribute('aria-invalid')).toBeNull();
+    expect(error.hidden).toBe(true);
+
+    fixture.componentInstance.invalid = true;
+    fixture.detectChanges();
+
+    expect(item.getAttribute('aria-invalid')).toBe('true');
+    expect(fieldset.getAttribute('aria-invalid')).toBe('true');
+    expect(error.hidden).toBe(false);
+    expect(error.textContent?.trim()).toBe('That answer is not valid.');
+
+    fixture.componentInstance.invalid = false;
+    fixture.detectChanges();
+
+    expect(item.getAttribute('aria-invalid')).toBeNull();
+    expect(fieldset.getAttribute('aria-invalid')).toBeNull();
+    expect(error.hidden).toBe(true);
+  });
+
+  it('should leave custom validation state under consumer control when the answer changes', async () => {
+    await TestBed.configureTestingModule({
+      imports: [QuestionnaireExternalValidationHostComponent],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(QuestionnaireExternalValidationHostComponent);
+    fixture.componentInstance.invalid = true;
+    fixture.detectChanges();
+
+    const item = fixture.nativeElement.querySelector('z-questionnaire-item') as HTMLElement;
+    const choice = item.querySelector('input') as HTMLInputElement;
+    const error = item.querySelector('[data-slot="questionnaire-error"]') as HTMLElement;
+
+    choice.click();
+    fixture.detectChanges();
+
+    expect(choice.checked).toBe(true);
+    expect(item.getAttribute('aria-invalid')).toBe('true');
+    expect(error.hidden).toBe(false);
+
+    fixture.componentInstance.invalid = false;
+    fixture.detectChanges();
+
+    expect(item.getAttribute('aria-invalid')).toBeNull();
+    expect(error.hidden).toBe(true);
+  });
+
+  it('should preserve built-in validation errors when custom validation is cleared', async () => {
+    await TestBed.configureTestingModule({
+      imports: [QuestionnaireExternalValidationHostComponent],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(QuestionnaireExternalValidationHostComponent);
+    fixture.detectChanges();
+
+    const form = fixture.nativeElement.querySelector('form') as HTMLFormElement;
+    const item = fixture.nativeElement.querySelector('z-questionnaire-item') as HTMLElement;
+    const fieldset = item.querySelector('fieldset') as HTMLFieldSetElement;
+    const error = item.querySelector('[data-slot="questionnaire-error"]') as HTMLElement;
+
+    form.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+
+    fixture.componentInstance.invalid = true;
+    fixture.detectChanges();
+    fixture.componentInstance.invalid = false;
+    fixture.detectChanges();
+
+    expect(item.getAttribute('aria-invalid')).toBe('true');
+    expect(fieldset.getAttribute('aria-invalid')).toBe('true');
+    expect(error.hidden).toBe(false);
   });
 
   it('should only pass an unanswered optional item when it is skipped', async () => {

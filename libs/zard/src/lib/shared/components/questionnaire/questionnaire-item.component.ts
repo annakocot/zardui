@@ -41,9 +41,10 @@ export class ZardQuestionnaireItemComponent {
   readonly zRequired = input(false, { transform: booleanAttribute });
   readonly zMultiple = input(false, { transform: booleanAttribute });
   readonly zDisabled = input(false, { transform: booleanAttribute });
+  readonly zInvalid = input(false, { transform: booleanAttribute });
   readonly class = input<ClassValue>('');
 
   readonly isActive = computed(() => this.questionnaire.zActive() === this.zName() && !this.zDisabled());
-  readonly isInvalid = computed(() => this.questionnaire.isInvalid(this.zName()));
+  readonly isInvalid = computed(() => this.zInvalid() || this.questionnaire.isInvalid(this.zName()));
   protected readonly classes = computed(() => mergeClasses(questionnaireItemVariants(), this.class()));
 }
