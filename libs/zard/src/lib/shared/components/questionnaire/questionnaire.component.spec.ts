@@ -2,6 +2,9 @@ import { ChangeDetectionStrategy, Component, type Type } from '@angular/core';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
 import { By } from '@angular/platform-browser';
 
+import { ZardSonnerService } from '@/shared/components/sonner/sonner.service';
+
+import { ZardDemoQuestionnaireResumeComponent } from './demo/resume';
 import {
   ZardQuestionnaireChoicesComponent,
   ZardQuestionnaireComponent,
@@ -91,6 +94,37 @@ class UncontrolledQuestionnaireHostComponent {
 class ResumedQuestionnaireHostComponent {
   readonly items: ZardQuestionnaireItem[] = [{ name: 'first' }, { name: 'second' }];
   active = 'second';
+  submitted: ZardQuestionnaireAnswers | undefined;
+}
+
+@Component({
+  imports: [
+    ZardQuestionnaireChoiceComponent,
+    ZardQuestionnaireChoicesComponent,
+    ZardQuestionnaireComponent,
+    ZardQuestionnaireInputComponent,
+    ZardQuestionnaireItemComponent,
+    ZardQuestionnaireSubmitDirective,
+  ],
+  template: `
+    <z-questionnaire [zItems]="items" (zSubmit)="submitted = $event">
+      <z-questionnaire-item zName="choice">
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="saved" checked>Saved</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="changed">Changed</z-questionnaire-choice>
+        </z-questionnaire-choices>
+      </z-questionnaire-item>
+      <z-questionnaire-item zName="note">
+        <z-questionnaire-input value="Saved note" />
+      </z-questionnaire-item>
+
+      <button type="submit" z-questionnaire-submit>Submit</button>
+    </z-questionnaire>
+  `,
+  changeDetection: ChangeDetectionStrategy.Eager,
+})
+class ResumedQuestionnaireControlsHostComponent {
+  readonly items: ZardQuestionnaireItem[] = [{ name: 'choice' }, { name: 'note' }];
   submitted: ZardQuestionnaireAnswers | undefined;
 }
 
@@ -941,6 +975,85 @@ describe('ZardQuestionnaireComponent', () => {
     expect(fixture.componentInstance.submitted).toEqual({
       first: 'saved-first',
       second: 'saved-second',
+    });
+  });
+
+  it('should restore saved answers supplied through questionnaire controls on form reset', async () => {
+    await TestBed.configureTestingModule({ imports: [ResumedQuestionnaireControlsHostComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(ResumedQuestionnaireControlsHostComponent);
+    fixture.detectChanges();
+    const form = fixture.debugElement.query(By.css('form')).nativeElement as HTMLFormElement;
+    const saved = fixture.debugElement.query(By.css('input[value="saved"]')).nativeElement as HTMLInputElement;
+    const changed = fixture.debugElement.query(By.css('input[value="changed"]')).nativeElement as HTMLInputElement;
+    const note = fixture.debugElement.query(By.css('[data-slot="questionnaire-input"]'))
+      .nativeElement as HTMLInputElement;
+
+    expect(saved.checked).toBe(true);
+    expect(note.value).toBe('Saved note');
+
+    changed.click();
+    note.value = 'Changed note';
+    form.reset();
+    fixture.detectChanges();
+
+    expect(saved.checked).toBe(true);
+    expect(changed.checked).toBe(false);
+    expect(note.value).toBe('Saved note');
+  });
+
+  it('should resume the saved demo on its persisted step and restore its answers in button order', async () => {
+    const show = jest.fn();
+    await TestBed.configureTestingModule({
+      imports: [ZardDemoQuestionnaireResumeComponent],
+      providers: [{ provide: ZardSonnerService, useValue: { show } }],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ZardDemoQuestionnaireResumeComponent);
+    fixture.detectChanges();
+    const form = fixture.debugElement.query(By.css('form')).nativeElement as HTMLFormElement;
+    const incremental = fixture.debugElement.query(By.css('input[value="incremental"]'))
+      .nativeElement as HTMLInputElement;
+    const cutover = fixture.debugElement.query(By.css('input[value="cutover"]')).nativeElement as HTMLInputElement;
+    const note = fixture.debugElement.query(By.css('[data-slot="questionnaire-input"]'))
+      .nativeElement as HTMLInputElement;
+
+    expect(fixture.componentInstance.activeItem()).toBe('verification');
+    expect(incremental.checked).toBe(true);
+    expect(note.value).toBe('Keep the existing public API stable.');
+    expect(
+      fixture.debugElement
+        .queryAll(By.css('z-questionnaire-actions button'))
+        .map(button => (button.nativeElement as HTMLButtonElement).textContent?.trim()),
+    ).toEqual(['Previous', 'Reset changes', 'Next', 'Update draft']);
+
+    cutover.click();
+    note.value = 'Replace the API.';
+    form.reset();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.activeItem()).toBe('verification');
+    expect(incremental.checked).toBe(true);
+    expect(cutover.checked).toBe(false);
+    expect(note.value).toBe('Keep the existing public API stable.');
+    expect(show).toHaveBeenCalledWith('Saved answers restored');
+  });
+
+  it('should summarize the resumed draft when the demo is submitted', async () => {
+    const show = jest.fn();
+    await TestBed.configureTestingModule({
+      imports: [ZardDemoQuestionnaireResumeComponent],
+      providers: [{ provide: ZardSonnerService, useValue: { show } }],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ZardDemoQuestionnaireResumeComponent);
+    fixture.detectChanges();
+    const form = fixture.debugElement.query(By.css('form')).nativeElement as HTMLFormElement;
+
+    fixture.componentInstance.activeItem.set('notes');
+    fixture.detectChanges();
+    form.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+
+    expect(show).toHaveBeenCalledWith('Draft updated', {
+      description:
+        'Migration: incremental · Verification: tests, typecheck · Notes: Keep the existing public API stable.',
     });
   });
 

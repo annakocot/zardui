@@ -10,8 +10,7 @@ import { questionnaireProgressVariants } from './questionnaire.variants';
 @Component({
   selector: 'z-questionnaire-progress',
   template: `
-    Question {{ current() }} of {{ total() }}
-    <ng-content />
+    <ng-content>Question {{ current() }} of {{ total() }}</ng-content>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,

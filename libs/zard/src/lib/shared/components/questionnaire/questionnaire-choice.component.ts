@@ -28,6 +28,7 @@ import {
         [type]="item.zMultiple() ? 'checkbox' : 'radio'"
         [name]="item.zName()"
         [value]="zValue()"
+        [attr.checked]="checked() ? '' : null"
         [disabled]="disabledState()"
         [attr.aria-keyshortcuts]="questionnaire.shortcutFor(input, item.zName())"
         #input
@@ -57,6 +58,7 @@ export class ZardQuestionnaireChoiceComponent {
   protected readonly questionnaire = inject(ZardQuestionnaireComponent);
 
   readonly zValue = input.required<string>();
+  readonly checked = input(false, { transform: booleanAttribute });
   readonly zDisabled = input(false, { transform: booleanAttribute });
   readonly class = input<ClassValue>('');
 

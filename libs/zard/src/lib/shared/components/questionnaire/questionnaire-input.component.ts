@@ -22,6 +22,7 @@ import { questionnaireInputVariants, questionnaireInputWrapperVariants } from '.
       data-slot="questionnaire-input"
       [type]="type()"
       [name]="item.zName()"
+      [attr.value]="value()"
       [placeholder]="placeholder()"
       [disabled]="disabledState()"
       [attr.aria-label]="ariaLabel()"
@@ -41,6 +42,7 @@ export class ZardQuestionnaireInputComponent {
   readonly item = inject(ZardQuestionnaireItemComponent);
 
   readonly type = input('text');
+  readonly value = input('');
   readonly placeholder = input('');
   readonly ariaLabel = input<string | null>(null, { alias: 'aria-label' });
   readonly zDisabled = input(false, { transform: booleanAttribute });
