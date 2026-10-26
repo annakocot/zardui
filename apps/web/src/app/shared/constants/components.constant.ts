@@ -20,6 +20,7 @@ export interface AboutData {
 export interface ComponentData {
   componentName: string;
   description: string;
+  accessibility?: string[];
   about?: AboutData;
   preview?: ExampleData;
   examples: ExampleData[];

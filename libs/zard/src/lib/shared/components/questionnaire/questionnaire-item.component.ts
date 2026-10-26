@@ -18,7 +18,12 @@ import { questionnaireItemVariants } from './questionnaire.variants';
 @Component({
   selector: 'z-questionnaire-item',
   template: `
-    <fieldset [disabled]="zDisabled()" [attr.aria-invalid]="isInvalid() ? 'true' : null" [class]="classes()">
+    <fieldset
+      [disabled]="zDisabled()"
+      [attr.aria-invalid]="isInvalid() ? 'true' : null"
+      [attr.data-active]="isActive() ? '' : null"
+      [class]="classes()"
+    >
       <ng-content />
     </fieldset>
   `,

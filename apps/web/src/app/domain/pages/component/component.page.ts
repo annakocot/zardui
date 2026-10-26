@@ -147,6 +147,7 @@ export class ComponentPage implements OnInit {
           type: 'core',
           children: exampleNavigationItems,
         },
+        ...(component.accessibility ? [{ id: 'accessibility', label: 'Accessibility', type: 'core' as const }] : []),
         { id: 'api', label: 'API', type: 'core' },
       ],
     };

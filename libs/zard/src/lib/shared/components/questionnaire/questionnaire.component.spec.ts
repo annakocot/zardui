@@ -369,6 +369,25 @@ describe('ZardQuestionnaireComponent', () => {
     expect(items.map(item => (item.nativeElement as HTMLFieldSetElement).hidden)).toEqual([true, false, true]);
   });
 
+  it('should mark only the active item fieldset for state-based styling', async () => {
+    const fixture = await createBehaviorFixture([
+      { name: 'first', required: true },
+      { name: 'second', required: true },
+    ]);
+    const firstFieldset = getItem(fixture, 'first').querySelector('fieldset') as HTMLFieldSetElement;
+    const secondFieldset = getItem(fixture, 'second').querySelector('fieldset') as HTMLFieldSetElement;
+
+    expect(firstFieldset).toHaveAttribute('data-active', '');
+    expect(secondFieldset).not.toHaveAttribute('data-active');
+
+    getChoiceInput(fixture, 'first', 'a').click();
+    fixture.detectChanges();
+    clickAction(fixture, ZardQuestionnaireNextDirective);
+
+    expect(firstFieldset).not.toHaveAttribute('data-active');
+    expect(secondFieldset).toHaveAttribute('data-active', '');
+  });
+
   it('should exclude disabled items from progress, navigation, validation, shortcuts, and submission', async () => {
     await TestBed.configureTestingModule({ imports: [DisabledItemHostComponent] }).compileComponents();
     const fixture: ComponentFixture<DisabledItemHostComponent> = TestBed.createComponent(DisabledItemHostComponent);
