@@ -22,7 +22,7 @@ import type { ZardQuestionnaireItem } from './questionnaire.types';
   template: `
     <z-questionnaire [zItems]="items" [(zActive)]="active">
       <input type="radio" name="first" value="answered" checked />
-      <button class="custom-previous" type="button" z-questionnaire-previous [disabled]="previousDisabled">
+      <button class="justify-self-center" type="button" z-questionnaire-previous [disabled]="previousDisabled">
         Previous
       </button>
       <button type="button" z-questionnaire-skip [disabled]="skipDisabled">Skip</button>
@@ -71,7 +71,8 @@ describe('questionnaire navigation directives', () => {
       expect(button.hidden).toBe(true);
       expect(button.getAttribute('aria-disabled')).toBe('true');
       expect(button.classList).toContain('border-border');
-      expect(button.classList).toContain('custom-previous');
+      expect(button.classList).toContain('justify-self-center');
+      expect(button.classList).not.toContain('justify-self-start');
       expect(button.classList).toContain('col-start-1');
     });
 
