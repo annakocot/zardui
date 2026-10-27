@@ -27,6 +27,7 @@ import { questionnaireInputVariants, questionnaireInputWrapperVariants } from '.
       [disabled]="disabledState()"
       [attr.aria-label]="ariaLabel()"
       [attr.aria-invalid]="item.isInvalid() ? 'true' : null"
+      [attr.aria-describedby]="item.ariaDescribedBy()"
       [class]="inputClasses()"
     />
   `,
@@ -48,7 +49,7 @@ export class ZardQuestionnaireInputComponent {
   readonly zDisabled = input(false, { transform: booleanAttribute });
   readonly class = input<ClassValue>('');
 
-  protected readonly disabledState = computed(() => this.zDisabled() || this.item.zDisabled());
+  protected readonly disabledState = computed(() => this.zDisabled() || this.item.isDisabled());
   protected readonly inputClasses = computed(() => mergeClasses(questionnaireInputVariants(), this.class()));
   protected readonly wrapperClasses = questionnaireInputWrapperVariants();
 }

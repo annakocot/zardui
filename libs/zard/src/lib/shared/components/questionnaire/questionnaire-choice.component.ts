@@ -31,6 +31,7 @@ import {
         [attr.checked]="checked() ? '' : null"
         [disabled]="disabledState()"
         [attr.aria-keyshortcuts]="questionnaire.shortcutFor(input, item.zName())"
+        [attr.aria-describedby]="item.ariaDescribedBy()"
         #input
       />
       <span data-slot="questionnaire-choice-label" [class]="labelClasses">
@@ -62,7 +63,7 @@ export class ZardQuestionnaireChoiceComponent {
   readonly zDisabled = input(false, { transform: booleanAttribute });
   readonly class = input<ClassValue>('');
 
-  protected readonly disabledState = computed(() => this.zDisabled() || this.item.zDisabled());
+  protected readonly disabledState = computed(() => this.zDisabled() || this.item.isDisabled());
   protected readonly classes = computed(() => mergeClasses(questionnaireChoiceVariants(), this.class()));
   protected readonly labelClasses = questionnaireChoiceLabelVariants();
   protected readonly shortcutClasses = questionnaireChoiceShortcutVariants();

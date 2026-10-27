@@ -5,11 +5,13 @@ import {
   computed,
   inject,
   input,
+  signal,
   ViewEncapsulation,
 } from '@angular/core';
 
 import type { ClassValue } from 'clsx';
 
+import { ZardIdDirective } from '@/shared/core/directives/id.directive';
 import { mergeClasses } from '@/shared/utils/merge-classes';
 
 import { ZardQuestionnaireComponent } from './questionnaire.component';
@@ -19,8 +21,9 @@ import { questionnaireItemVariants } from './questionnaire.variants';
   selector: 'z-questionnaire-item',
   template: `
     <fieldset
-      [disabled]="zDisabled()"
+      [disabled]="isDisabled()"
       [attr.aria-invalid]="isInvalid() ? 'true' : null"
+      [attr.aria-describedby]="ariaDescribedBy()"
       [attr.data-active]="isActive() ? '' : null"
       [class]="classes()"
     >
@@ -34,13 +37,15 @@ import { questionnaireItemVariants } from './questionnaire.variants';
     'data-slot': 'questionnaire-item',
     '[attr.data-questionnaire-name]': 'zName()',
     '[attr.aria-invalid]': 'isInvalid() ? "true" : null',
-    '[attr.data-disabled]': 'zDisabled() ? "" : null',
+    '[attr.data-disabled]': 'isDisabled() ? "" : null',
     '[hidden]': '!isActive()',
   },
+  hostDirectives: [ZardIdDirective],
   exportAs: 'zQuestionnaireItem',
 })
 export class ZardQuestionnaireItemComponent {
   private readonly questionnaire = inject(ZardQuestionnaireComponent);
+  private readonly uniqueId = inject(ZardIdDirective);
 
   readonly zName = input.required<string>();
   readonly zRequired = input(false, { transform: booleanAttribute });
@@ -49,7 +54,23 @@ export class ZardQuestionnaireItemComponent {
   readonly zInvalid = input(false, { transform: booleanAttribute });
   readonly class = input<ClassValue>('');
 
-  readonly isActive = computed(() => this.questionnaire.zActive() === this.zName() && !this.zDisabled());
+  readonly descriptionPresent = signal(false);
+  readonly errorPresent = signal(false);
+  readonly descriptionId = computed(() => `${this.uniqueId.id()}-description`);
+  readonly errorId = computed(() => `${this.uniqueId.id()}-error`);
+  readonly isDisabled = computed(() => this.zDisabled() || this.questionnaire.disabled());
+  readonly isActive = computed(() => this.questionnaire.zActive() === this.zName() && !this.isDisabled());
   readonly isInvalid = computed(() => this.zInvalid() || this.questionnaire.isInvalid(this.zName()));
+  readonly ariaDescribedBy = computed(() => {
+    const ids: string[] = [];
+    if (this.descriptionPresent()) {
+      ids.push(this.descriptionId());
+    }
+    if (this.errorPresent() && this.isInvalid()) {
+      ids.push(this.errorId());
+    }
+    return ids.length > 0 ? ids.join(' ') : null;
+  });
+
   protected readonly classes = computed(() => mergeClasses(questionnaireItemVariants(), this.class()));
 }
