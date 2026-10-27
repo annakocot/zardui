@@ -56,7 +56,7 @@ export const QUESTIONNAIRE_API: ApiSection[] = [
       'A multi-step questionnaire with single-choice, multiple-choice, freeform, and skippable questions. Implements ControlValueAccessor for Reactive Forms.',
     props: [
       {
-        name: 'zItems',
+        name: '[zItems]',
         description: 'Item definitions that control order, name, required, multiple, and disabled state',
         type: 'readonly ZardQuestionnaireItem[]',
         default: '[]',
