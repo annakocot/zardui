@@ -51,7 +51,7 @@ const QUESTIONNAIRE_COMPOSITION_CODE = `z-questionnaire
     ├── z-questionnaire-previous
     ├── z-questionnaire-skip
     ├── z-questionnaire-next
-    ├── z-questionnaire-submit`;
+    └── z-questionnaire-submit`;
 
 const QUESTIONNAIRE_COMPOSITION: CodeBlockData = {
   html: `<pre class="shiki shiki-themes github-dark github-light" style="--shiki-dark:#e1e4e8;--shiki-light:#24292e;--shiki-dark-bg:#24292e;--shiki-light-bg:#fff" tabindex="0"><code>${QUESTIONNAIRE_COMPOSITION_CODE.split(
@@ -71,9 +71,9 @@ export const QUESTIONNAIRE = {
   componentType: 'questionnaire',
   description: 'A multi-step questionnaire with single-choice, multiple-choice, freeform, and skippable questions.',
   accessibility: [
-    'Each z-questionnaire-item renders a fieldset. Fixed choices use native, labelled radio or checkbox inputs, while progress exposes progressbar values and navigation uses native buttons. Inactive items and unavailable actions are hidden.',
+    'Each `z-questionnaire-item` renders a fieldset. Fixed choices use native, labelled radio or checkbox inputs, while progress exposes progressbar values and navigation uses native buttons. Inactive items and unavailable actions are hidden.',
     'After successful navigation, focus moves to the first enabled input in the active item. Failed validation marks the item invalid, reveals its alert, and focuses the first enabled input.',
-    'Always give z-questionnaire-input an accessible name with aria-label or by wrapping it in a visible label. A placeholder is not a label. Description and error content are not automatically associated with custom answer controls, so custom compositions must provide their own labelling and aria-describedby relationships.',
+    'Always give `z-questionnaire-input` an accessible name with `aria-label` or by wrapping it in a visible label. A placeholder is not a label. Description and visible error content are automatically associated with the item fieldset and built-in answer controls; custom projected controls can reference the generated description and error ids when needed.',
   ],
   api: QUESTIONNAIRE_API,
   installData: {
@@ -81,6 +81,11 @@ export const QUESTIONNAIRE = {
     manualCode: QUESTIONNAIRE_MANUAL_CODE,
   },
   composition: QUESTIONNAIRE_COMPOSITION,
+  preview: {
+    name: 'preview',
+    component: ZardDemoQuestionnaireDefaultComponent,
+    codeData: QUESTIONNAIRE_DEMO_DEFAULT,
+  },
   usage: {
     importBlock: QUESTIONNAIRE_USAGE_IMPORT,
     codeBlock: QUESTIONNAIRE_USAGE_CODE,
@@ -89,12 +94,6 @@ export const QUESTIONNAIRE = {
   },
   examples: [
     {
-      name: 'default',
-      component: ZardDemoQuestionnaireDefaultComponent,
-      codeData: QUESTIONNAIRE_DEMO_DEFAULT,
-    },
-
-    {
       name: 'multiple-selection',
       description: 'Use `multiple` for an item that accepts more than one fixed answer.',
       component: ZardDemoQuestionnaireMultipleSelectionComponent,
@@ -102,13 +101,13 @@ export const QUESTIONNAIRE = {
     },
     {
       name: 'freeform-answer',
-      description: 'Compose `QuestionnaireInput` with fixed choices when the user can provide another answer.',
+      description: 'Compose `z-questionnaire-input` with fixed choices when the user can provide another answer.',
       component: ZardDemoQuestionnaireFreeformAnswerComponent,
       codeData: QUESTIONNAIRE_DEMO_FREEFORM_ANSWER,
     },
     {
       name: 'explicit-skip',
-      description: 'Add `QuestionnaireSkip` when an optional item may be intentionally left unanswered.',
+      description: 'Add `z-questionnaire-skip` when an optional item may be intentionally left unanswered.',
       component: ZardDemoQuestionnaireExplicitSkipComponent,
       codeData: QUESTIONNAIRE_DEMO_EXPLICIT_SKIP,
     },
@@ -164,13 +163,13 @@ export const QUESTIONNAIRE = {
     },
     {
       name: 'card',
-      description: 'Compose Questionnaire items, progress, and navigation inside a card.',
+      description: 'Compose `z-questionnaire` items, progress, and navigation inside a card.',
       component: ZardDemoQuestionnaireCardComponent,
       codeData: QUESTIONNAIRE_DEMO_CARD,
     },
     {
       name: 'dialog',
-      description: 'Compose Questionnaire inside a Dialog while keeping cancellation and dismissal host-owned.',
+      description: 'Compose `z-questionnaire` inside a `z-dialog` while keeping cancellation and dismissal host-owned.',
       component: ZardDemoQuestionnaireDialogComponent,
       codeData: QUESTIONNAIRE_DEMO_DIALOG,
     },

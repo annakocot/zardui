@@ -58,7 +58,7 @@ const TIMING_LABELS: Record<string, string> = {
         <z-questionnaire-error />
       </z-questionnaire-item>
 
-      <z-questionnaire-item zName="signals" zMultiple>
+      <z-questionnaire-item zName="updates" zMultiple>
         <z-questionnaire-title>What should every progress update include?</z-questionnaire-title>
         <z-questionnaire-description>Select all that apply, or skip this question.</z-questionnaire-description>
         <z-questionnaire-choices>
@@ -70,7 +70,7 @@ const TIMING_LABELS: Record<string, string> = {
         <z-questionnaire-error />
       </z-questionnaire-item>
 
-      <z-questionnaire-item zName="timing" zRequired>
+      <z-questionnaire-item zName="start" zRequired>
         <z-questionnaire-title>When should work begin?</z-questionnaire-title>
         <z-questionnaire-description>Choose one option.</z-questionnaire-description>
         <z-questionnaire-choices>

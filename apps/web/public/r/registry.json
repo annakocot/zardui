@@ -1206,8 +1206,12 @@
       ],
       "icons": {
         "family": "lucide",
-        "symbols": [],
-        "tokens": []
+        "symbols": [
+          "lucideLoaderCircle"
+        ],
+        "tokens": [
+          "loader-circle"
+        ]
       },
       "files": [
         "questionnaire.component.ts",
