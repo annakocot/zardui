@@ -74,8 +74,6 @@ export const QUESTIONNAIRE_API: ApiSection[] = [
         default: "'none'",
       },
       CLASS_PROP,
-    ],
-    outputs: [
       {
         name: '(zSubmit)',
         description: 'Emits the answers once every enabled item validates',

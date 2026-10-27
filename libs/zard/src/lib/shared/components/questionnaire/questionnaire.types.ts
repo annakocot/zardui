@@ -12,4 +12,6 @@ export interface ZardQuestionnaireItem {
   name: string;
   choices?: readonly ZardQuestionnaireChoice[];
   required?: boolean;
+  multiple?: boolean;
+  disabled?: boolean;
 }
