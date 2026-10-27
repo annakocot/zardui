@@ -235,6 +235,32 @@ class QuestionnaireBehaviorHostComponent {
 @Component({
   imports: [
     ZardQuestionnaireChoiceComponent,
+    ZardQuestionnaireComponent,
+    ZardQuestionnaireInputComponent,
+    ZardQuestionnaireItemComponent,
+    ZardQuestionnaireSubmitDirective,
+  ],
+  template: `
+    <z-questionnaire [zItems]="items" (zSubmit)="submitted = $event">
+      <z-questionnaire-item zName="answer" [zMultiple]="multiple">
+        <z-questionnaire-choice zValue="fixed">Fixed answer</z-questionnaire-choice>
+        <z-questionnaire-input placeholder="Other answer" />
+      </z-questionnaire-item>
+
+      <button type="submit" z-questionnaire-submit>Submit</button>
+    </z-questionnaire>
+  `,
+  changeDetection: ChangeDetectionStrategy.Eager,
+})
+class QuestionnaireMixedAnswerHostComponent {
+  multiple = false;
+  items: ZardQuestionnaireItem[] = [{ name: 'answer' }];
+  submitted: ZardQuestionnaireAnswers | undefined;
+}
+
+@Component({
+  imports: [
+    ZardQuestionnaireChoiceComponent,
     ZardQuestionnaireChoicesComponent,
     ZardQuestionnaireComponent,
     ZardQuestionnaireDescriptionComponent,
@@ -663,6 +689,60 @@ describe('ZardQuestionnaireComponent', () => {
 
     expect(fixture.componentInstance.submitted).toEqual({ single: 'single-a' });
     expect(typeof fixture.componentInstance.submitted?.['single']).toBe('string');
+  });
+
+  it('should clear a fixed single answer when freeform text is entered', async () => {
+    await TestBed.configureTestingModule({ imports: [QuestionnaireMixedAnswerHostComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(QuestionnaireMixedAnswerHostComponent);
+    fixture.detectChanges();
+    const choice = fixture.nativeElement.querySelector('input[type="radio"]') as HTMLInputElement;
+    const freeform = fixture.nativeElement.querySelector('[data-slot="questionnaire-input"]') as HTMLInputElement;
+
+    choice.click();
+    freeform.value = 'Custom answer';
+    freeform.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    fixture.detectChanges();
+
+    expect(choice.checked).toBe(false);
+    clickAction(fixture, ZardQuestionnaireSubmitDirective);
+    expect(fixture.componentInstance.submitted).toEqual({ answer: 'Custom answer' });
+  });
+
+  it('should clear freeform text when a fixed single answer is checked', async () => {
+    await TestBed.configureTestingModule({ imports: [QuestionnaireMixedAnswerHostComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(QuestionnaireMixedAnswerHostComponent);
+    fixture.detectChanges();
+    const choice = fixture.nativeElement.querySelector('input[type="radio"]') as HTMLInputElement;
+    const freeform = fixture.nativeElement.querySelector('[data-slot="questionnaire-input"]') as HTMLInputElement;
+
+    freeform.value = 'Custom answer';
+    freeform.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    choice.click();
+    fixture.detectChanges();
+
+    expect(freeform.value).toBe('');
+    clickAction(fixture, ZardQuestionnaireSubmitDirective);
+    expect(fixture.componentInstance.submitted).toEqual({ answer: 'fixed' });
+  });
+
+  it('should preserve fixed and freeform answers for a multiple-answer item', async () => {
+    await TestBed.configureTestingModule({ imports: [QuestionnaireMixedAnswerHostComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(QuestionnaireMixedAnswerHostComponent);
+    fixture.componentInstance.multiple = true;
+    fixture.componentInstance.items = [{ name: 'answer', multiple: true }];
+    fixture.detectChanges();
+    const choice = fixture.nativeElement.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    const freeform = fixture.nativeElement.querySelector('[data-slot="questionnaire-input"]') as HTMLInputElement;
+
+    choice.click();
+    freeform.value = 'Custom answer';
+    freeform.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    fixture.detectChanges();
+
+    expect(choice.checked).toBe(true);
+    expect(freeform.value).toBe('Custom answer');
+    clickAction(fixture, ZardQuestionnaireSubmitDirective);
+    expect(fixture.componentInstance.submitted).toEqual({ answer: ['fixed', 'Custom answer'] });
   });
 
   it('should serialize multiple answers as an array', async () => {

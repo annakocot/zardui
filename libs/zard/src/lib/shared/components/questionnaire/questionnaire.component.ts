@@ -1,4 +1,5 @@
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
@@ -6,6 +7,7 @@ import {
   ElementRef,
   forwardRef,
   inject,
+  Injector,
   input,
   model,
   output,
@@ -61,6 +63,7 @@ import { questionnaireVariants } from './questionnaire.variants';
 })
 export class ZardQuestionnaireComponent implements ControlValueAccessor {
   private readonly elementRef = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
   private readonly form = viewChild<ElementRef<HTMLFormElement>>('form');
   private readonly invalidItems = signal<ReadonlySet<string>>(new Set());
   private readonly skippedItems = signal<ReadonlySet<string>>(new Set());
@@ -163,17 +166,17 @@ export class ZardQuestionnaireComponent implements ControlValueAccessor {
     return this.invalidItems().has(name);
   }
 
-  shortcutFor(input: HTMLInputElement, itemName: string): string | null {
+  shortcutFor(control: HTMLInputElement, itemName: string): string | null {
     const mode = this.zShortcuts();
-    if (mode === 'none' || itemName !== this.zActive() || input.disabled) {
+    if (mode === 'none' || itemName !== this.zActive() || control.disabled) {
       return null;
     }
 
-    const item = input.closest<HTMLElement>('[data-slot="questionnaire-item"]');
+    const item = control.closest<HTMLElement>('[data-slot="questionnaire-item"]');
     const choices = Array.from(
       item?.querySelectorAll<HTMLInputElement>('[data-slot="questionnaire-choice"] input:not(:disabled)') ?? [],
     );
-    const index = choices.indexOf(input);
+    const index = choices.indexOf(control);
 
     if (index < 0) {
       return null;
@@ -209,7 +212,7 @@ export class ZardQuestionnaireComponent implements ControlValueAccessor {
       this.updateSet(this.skippedItems, name, false);
       this.updateSet(this.invalidItems, name, false);
     }
-    this.onChangeFn(this.collectAnswers());
+    this.onChangeFn(this.collectAnswers(control));
   }
 
   handleSubmit(event: SubmitEvent): void {
@@ -265,6 +268,18 @@ export class ZardQuestionnaireComponent implements ControlValueAccessor {
     }
 
     const { target } = event;
+    if (!(target instanceof Node) || !this.elementRef.nativeElement.contains(target)) {
+      return;
+    }
+
+    const isTypingTarget =
+      target instanceof HTMLElement &&
+      (target.matches('input:not([type="radio"]):not([type="checkbox"]), textarea, select') ||
+        target.isContentEditable);
+    if (isTypingTarget) {
+      return;
+    }
+
     if (target instanceof HTMLElement && (target.matches('input, textarea, select') || target.isContentEditable)) {
       return;
     }
@@ -303,11 +318,35 @@ export class ZardQuestionnaireComponent implements ControlValueAccessor {
     return Boolean(form && new FormData(form).getAll(name).some(value => String(value).trim().length > 0));
   }
 
-  private collectAnswers(): ZardQuestionnaireAnswers {
+  private collectAnswers(
+    changedControl?: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+  ): ZardQuestionnaireAnswers {
     const form = this.form()?.nativeElement;
     const answers: ZardQuestionnaireAnswers = {};
     if (!form) {
       return answers;
+    }
+
+    const changedItem = changedControl && this.enabledItems().find(item => item.name === changedControl.name);
+    if (changedControl && changedItem && !changedItem.multiple) {
+      const namedControl = form.elements.namedItem(changedItem.name);
+      const controls = namedControl instanceof RadioNodeList ? Array.from(namedControl) : [namedControl];
+      const radioControls = controls.filter(
+        (control): control is HTMLInputElement => control instanceof HTMLInputElement && control.type === 'radio',
+      );
+      const freeformControls = controls.filter(
+        (control): control is HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement =>
+          (control instanceof HTMLInputElement && control.type !== 'radio') ||
+          control instanceof HTMLTextAreaElement ||
+          control instanceof HTMLSelectElement,
+      );
+
+      // A single-answer item treats fixed radio choices and freeform text as mutually exclusive.
+      if (changedControl instanceof HTMLInputElement && changedControl.type === 'radio' && changedControl.checked) {
+        freeformControls.forEach(control => (control.value = ''));
+      } else if (freeformControls.includes(changedControl) && changedControl.value.trim().length > 0) {
+        radioControls.forEach(control => (control.checked = false));
+      }
     }
 
     const formData = new FormData(form);
@@ -364,11 +403,14 @@ export class ZardQuestionnaireComponent implements ControlValueAccessor {
       return;
     }
 
-    setTimeout(() => {
-      this.elementRef.nativeElement
-        .querySelector<HTMLElement>(`[data-questionnaire-name="${CSS.escape(name)}"] input:not(:disabled)`)
-        ?.focus();
-    }, 0);
+    afterNextRender(
+      () => {
+        this.elementRef.nativeElement
+          .querySelector<HTMLElement>(`[data-questionnaire-name="${CSS.escape(name)}"] input:not(:disabled)`)
+          ?.focus();
+      },
+      { injector: this.injector },
+    );
   }
 
   private shortcutIndex(key: string): number {

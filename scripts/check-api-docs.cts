@@ -35,7 +35,6 @@ const COMPONENTS = path.resolve(__dirname, '../libs/zard/src/lib/shared/componen
  *     they stay exempt here.
  */
 const UNDOCUMENTED_BY_DESIGN = new Set([
-  'z-questionnaire.item',
   'z-command-option.parentCommand',
   'z-command-option.commandGroup',
   'z-dropdown-menu-item.variant',

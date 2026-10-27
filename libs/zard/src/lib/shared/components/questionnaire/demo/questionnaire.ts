@@ -45,7 +45,7 @@ const QUESTIONNAIRE_COMPOSITION_CODE = `z-questionnaire
 │   ├── z-questionnaire-description
 │   ├── z-questionnaire-choices
 │   │   ├── z-questionnaire-choice
-│   │   └──z-questionnaire-input
+│   │   └── z-questionnaire-input
 │   └── z-questionnaire-error
 └── z-questionnaire-actions
     ├── z-questionnaire-previous
@@ -95,7 +95,7 @@ export const QUESTIONNAIRE = {
   examples: [
     {
       name: 'multiple-selection',
-      description: 'Use `multiple` for an item that accepts more than one fixed answer.',
+      description: 'Use `zMultiple` (and `multiple` in `zItems`) for an item that accepts more than one fixed answer.',
       component: ZardDemoQuestionnaireMultipleSelectionComponent,
       codeData: QUESTIONNAIRE_DEMO_MULTIPLE_SELECTION,
     },
@@ -113,7 +113,7 @@ export const QUESTIONNAIRE = {
     },
     {
       name: 'shortcuts',
-      description: 'Assign a letter or number key to each answer with `shortcuts`.',
+      description: 'Assign a letter or number key to each answer with `zShortcuts`.',
       component: ZardDemoQuestionnaireShortcutsComponent,
       codeData: QUESTIONNAIRE_DEMO_SHORTCUTS,
     },

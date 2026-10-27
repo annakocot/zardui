@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
-import { ZardSonnerService } from '../../sonner';
+import { ZardSonnerService } from '@/shared/components/sonner/sonner.service';
+
 import { ZardQuestionnaireImports } from '../questionnaire.imports';
 import type { ZardQuestionnaireAnswers, ZardQuestionnaireItem } from '../questionnaire.types';
 

@@ -1,49 +1,49 @@
 import type { ApiSection } from '@doc/domain/components/api-reference/api-reference.types';
 
 const CLASS_PROP = {
-  name: '[class]',
+  name: 'class',
   description: 'Custom CSS classes',
   type: 'ClassValue',
   default: "''",
 };
 
 const DISABLED_PROP = {
-  name: '[disabled]',
+  name: 'disabled',
   description: 'Disables the button in addition to its questionnaire-controlled disabled state',
   type: 'boolean',
   default: 'false',
 };
 
 const DEFAULT_TYPE_PROP = {
-  name: '[zType]',
+  name: 'zType',
   description: 'Button visual style',
   type: 'ZardButtonTypeVariants',
   default: "'default'",
 };
 
 const OUTLINE_TYPE_PROP = {
-  name: '[zType]',
+  name: 'zType',
   description: 'Button visual style',
   type: 'ZardButtonTypeVariants',
   default: "'outline'",
 };
 
 const SIZE_PROP = {
-  name: '[zSize]',
+  name: 'zSize',
   description: 'Button size',
   type: 'ZardButtonSizeVariants',
   default: "'default'",
 };
 
 const SHAPE_PROP = {
-  name: '[zShape]',
+  name: 'zShape',
   description: 'Button shape',
   type: 'ZardButtonShapeVariants',
   default: "'default'",
 };
 
 const LOADING_PROP = {
-  name: '[zLoading]',
+  name: 'zLoading',
   description: 'Shows the loading state and disables the button',
   type: 'boolean',
   default: 'false',
@@ -56,24 +56,26 @@ export const QUESTIONNAIRE_API: ApiSection[] = [
       'A multi-step questionnaire with single-choice, multiple-choice, freeform, and skippable questions. Implements ControlValueAccessor for Reactive Forms.',
     props: [
       {
-        name: '[zItems]',
+        name: 'zItems',
         description: 'Item definitions that control order, name, required, multiple, and disabled state',
         type: 'readonly ZardQuestionnaireItem[]',
         default: '[]',
       },
       {
-        name: '[zActive]',
+        name: 'zActive',
         description: 'Active item name; supports two-way binding with [(zActive)]',
         type: 'string | undefined',
         default: 'undefined',
       },
       {
-        name: '[zShortcuts]',
+        name: 'zShortcuts',
         description: 'Assigns answer shortcuts in item order',
         type: "'none' | 'letters' | 'numbers'",
         default: "'none'",
       },
       CLASS_PROP,
+    ],
+    outputs: [
       {
         name: '(zSubmit)',
         description: 'Emits the answers once every enabled item validates',
@@ -92,31 +94,31 @@ export const QUESTIONNAIRE_API: ApiSection[] = [
     description: 'One questionnaire step rendered as a fieldset.',
     props: [
       {
-        name: '[zName]',
+        name: 'zName',
         description: 'Unique item name used for navigation and the submitted answer key',
         type: 'string',
         default: 'required',
       },
       {
-        name: '[zRequired]',
+        name: 'zRequired',
         description: 'Requires an answer before navigation or submission can continue',
         type: 'boolean',
         default: 'false',
       },
       {
-        name: '[zMultiple]',
+        name: 'zMultiple',
         description: 'Allows multiple fixed answers and submits a string array',
         type: 'boolean',
         default: 'false',
       },
       {
-        name: '[zDisabled]',
+        name: 'zDisabled',
         description: 'Disables the item and excludes it from progress, navigation, validation, and submission',
         type: 'boolean',
         default: 'false',
       },
       {
-        name: '[zInvalid]',
+        name: 'zInvalid',
         description: 'Marks the item invalid from consumer-owned validation',
         type: 'boolean',
         default: 'false',
@@ -144,19 +146,19 @@ export const QUESTIONNAIRE_API: ApiSection[] = [
     description: 'One fixed answer rendered as a label with a native radio or checkbox and an optional shortcut.',
     props: [
       {
-        name: '[zValue]',
+        name: 'zValue',
         description: 'Value submitted when the choice is selected',
         type: 'string',
         default: 'required',
       },
       {
-        name: '[checked]',
+        name: 'checked',
         description: 'Initial checked state, including the state restored by a native form reset',
         type: 'boolean',
         default: 'false',
       },
       {
-        name: '[zDisabled]',
+        name: 'zDisabled',
         description: 'Disables this choice',
         type: 'boolean',
         default: 'false',
@@ -168,21 +170,21 @@ export const QUESTIONNAIRE_API: ApiSection[] = [
     selector: 'z-questionnaire-input',
     description: 'Freeform answer for the active item.',
     props: [
-      { name: '[type]', description: 'Native input type', type: 'string', default: "'text'" },
+      { name: 'type', description: 'Native input type', type: 'string', default: "'text'" },
       {
-        name: '[value]',
+        name: 'value',
         description: 'Initial value, including the value restored by a native form reset',
         type: 'string',
         default: "''",
       },
-      { name: '[placeholder]', description: 'Placeholder text', type: 'string', default: "''" },
+      { name: 'placeholder', description: 'Placeholder text', type: 'string', default: "''" },
       {
-        name: '[aria-label]',
+        name: 'aria-label',
         description: 'Accessible label for the freeform input',
         type: 'string | null',
         default: 'null',
       },
-      { name: '[zDisabled]', description: 'Disables the freeform input', type: 'boolean', default: 'false' },
+      { name: 'zDisabled', description: 'Disables the freeform input', type: 'boolean', default: 'false' },
       CLASS_PROP,
     ],
   },

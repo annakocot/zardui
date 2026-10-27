@@ -1,7 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 
-import { ZardComboboxImports } from '../../combobox';
-import { ZardSonnerService } from '../../sonner';
+import { ZardComboboxImports } from '@/shared/components/combobox';
+import { ZardSonnerService } from '@/shared/components/sonner/sonner.service';
+
 import { ZardQuestionnaireImports } from '../questionnaire.imports';
 import type {
   ZardQuestionnaireAnswers,
