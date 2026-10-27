@@ -1,11 +1,14 @@
 import { ChangeDetectionStrategy, Component, type Type } from '@angular/core';
 import { type ComponentFixture, TestBed } from '@angular/core/testing';
+import { FormControl, ReactiveFormsModule } from '@angular/forms';
 import { By } from '@angular/platform-browser';
 
 import { ZardSonnerService } from '@/shared/components/sonner/sonner.service';
 
+import { ZardDemoQuestionnaireDefaultComponent } from './demo/default';
 import { ZardDemoQuestionnaireResumeComponent } from './demo/resume';
 import {
+  ZardQuestionnaireImports,
   ZardQuestionnaireChoicesComponent,
   ZardQuestionnaireComponent,
   ZardQuestionnaireDescriptionComponent,
@@ -317,6 +320,38 @@ class QuestionnaireExternalValidationHostComponent {
 })
 class QuestionnaireStyleOverridesHostComponent {
   readonly items: ZardQuestionnaireItem[] = [{ name: 'first' }];
+}
+
+@Component({
+  imports: [ReactiveFormsModule, ...ZardQuestionnaireImports],
+  template: `
+    <z-questionnaire [formControl]="answers" [zItems]="items">
+      <z-questionnaire-item zName="choice">
+        <z-questionnaire-choice zValue="alpha">Alpha</z-questionnaire-choice>
+        <z-questionnaire-choice zValue="beta">Beta</z-questionnaire-choice>
+      </z-questionnaire-item>
+      <z-questionnaire-item zName="tags" zMultiple>
+        <z-questionnaire-choice zValue="tests">Tests</z-questionnaire-choice>
+        <z-questionnaire-choice zValue="docs">Docs</z-questionnaire-choice>
+      </z-questionnaire-item>
+      <z-questionnaire-item zName="note">
+        <z-questionnaire-input aria-label="Note" />
+      </z-questionnaire-item>
+      <z-questionnaire-actions>
+        <button type="button" z-questionnaire-next>Next</button>
+        <button type="submit" z-questionnaire-submit>Submit</button>
+      </z-questionnaire-actions>
+    </z-questionnaire>
+  `,
+  changeDetection: ChangeDetectionStrategy.Eager,
+})
+class QuestionnaireReactiveFormsHostComponent {
+  readonly items: ZardQuestionnaireItem[] = [{ name: 'choice' }, { name: 'tags', multiple: true }, { name: 'note' }];
+
+  readonly answers = new FormControl<ZardQuestionnaireAnswers>(
+    { choice: 'beta', tags: ['tests', 'docs'], note: 'Saved note' },
+    { nonNullable: true },
+  );
 }
 
 async function createBehaviorFixture(
@@ -978,6 +1013,78 @@ describe('ZardQuestionnaireComponent', () => {
     expect(secondItem.hidden).toBe(false);
   });
 
+  it('should keep the basic demo item definitions aligned with its projected item names', async () => {
+    await TestBed.configureTestingModule({
+      imports: [ZardDemoQuestionnaireDefaultComponent],
+      providers: [{ provide: ZardSonnerService, useValue: { show: jest.fn() } }],
+    }).compileComponents();
+    const fixture = TestBed.createComponent(ZardDemoQuestionnaireDefaultComponent);
+    fixture.detectChanges();
+    const firstChoice = fixture.debugElement.query(By.css('input[value="tool-calls"]'))
+      .nativeElement as HTMLInputElement;
+    const next = fixture.debugElement.query(By.directive(ZardQuestionnaireNextDirective))
+      .nativeElement as HTMLButtonElement;
+
+    firstChoice.click();
+    next.click();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const activeItem = fixture.nativeElement.querySelector('z-questionnaire-item:not([hidden])') as HTMLElement | null;
+    const progress = fixture.debugElement.query(By.directive(ZardQuestionnaireProgressComponent))
+      .nativeElement as HTMLElement;
+    expect(activeItem?.getAttribute('data-questionnaire-name')).toBe('updates');
+    expect(progress.getAttribute('aria-valuetext')).toBe('Question 2 of 3');
+    expect(document.activeElement?.getAttribute('name')).toBe('updates');
+  });
+
+  it('should read, update, touch, and disable answers through Reactive Forms', async () => {
+    await TestBed.configureTestingModule({ imports: [QuestionnaireReactiveFormsHostComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(QuestionnaireReactiveFormsHostComponent);
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const input = (value: string): HTMLInputElement =>
+      fixture.nativeElement.querySelector(`input[value="${value}"]`) as HTMLInputElement;
+    const note = fixture.nativeElement.querySelector('[data-slot="questionnaire-input"]') as HTMLInputElement;
+    expect(input('beta').checked).toBe(true);
+    expect(input('tests').checked).toBe(true);
+    expect(input('docs').checked).toBe(true);
+    expect(note.value).toBe('Saved note');
+
+    input('alpha').click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.answers.value).toEqual({
+      choice: 'alpha',
+      tags: ['tests', 'docs'],
+      note: 'Saved note',
+    });
+
+    input('tests').click();
+    input('docs').click();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.answers.value).toEqual({ choice: 'alpha', note: 'Saved note' });
+
+    note.value = '';
+    note.dispatchEvent(new InputEvent('input', { bubbles: true }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.answers.value).toEqual({ choice: 'alpha' });
+
+    input('alpha').dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    fixture.detectChanges();
+    expect(fixture.componentInstance.answers.touched).toBe(true);
+
+    fixture.componentInstance.answers.disable();
+    fixture.detectChanges();
+    expect(
+      Array.from(fixture.nativeElement.querySelectorAll('fieldset')).every(
+        fieldset => (fieldset as HTMLFieldSetElement).disabled,
+      ),
+    ).toBe(true);
+    expect(getAction(fixture, ZardQuestionnaireNextDirective).disabled).toBe(true);
+  });
+
   it('should resume from native controls initialized with saved answers', async () => {
     await TestBed.configureTestingModule({ imports: [ResumedQuestionnaireHostComponent] }).compileComponents();
     const fixture = TestBed.createComponent(ResumedQuestionnaireHostComponent);
@@ -1095,6 +1202,32 @@ describe('ZardQuestionnaireComponent', () => {
     const fixture = await createBehaviorFixture([{ name: 'first', required: true }]);
 
     expect(getItem(fixture, 'first').querySelector('fieldset')).not.toBeNull();
+  });
+
+  it('should associate item descriptions and visible errors with its fieldset and answer controls', async () => {
+    await TestBed.configureTestingModule({ imports: [QuestionnaireStylesHostComponent] }).compileComponents();
+    const fixture = TestBed.createComponent(QuestionnaireStylesHostComponent);
+    fixture.detectChanges();
+    const fieldset = fixture.nativeElement.querySelector('fieldset') as HTMLFieldSetElement;
+    const description = fixture.nativeElement.querySelector('[data-slot="questionnaire-description"]') as HTMLElement;
+    const error = fixture.nativeElement.querySelector('[data-slot="questionnaire-error"]') as HTMLElement;
+    const controls = Array.from(
+      fixture.nativeElement.querySelectorAll(
+        '[data-slot="questionnaire-choice"] input, [data-slot="questionnaire-input"]',
+      ),
+    ) as HTMLElement[];
+
+    expect(description.id).not.toBe('');
+    expect(error.id).not.toBe('');
+    expect(fieldset.getAttribute('aria-describedby')).toBe(description.id);
+    expect(controls.every(control => control.getAttribute('aria-describedby') === description.id)).toBe(true);
+
+    const form = fixture.nativeElement.querySelector('form') as HTMLFormElement;
+    form.dispatchEvent(new SubmitEvent('submit', { bubbles: true, cancelable: true }));
+    fixture.detectChanges();
+    const describedBy = `${description.id} ${error.id}`;
+    expect(fieldset.getAttribute('aria-describedby')).toBe(describedBy);
+    expect(controls.every(control => control.getAttribute('aria-describedby') === describedBy)).toBe(true);
   });
 
   it('should apply the default questionnaire variants to the rendered parts', async () => {

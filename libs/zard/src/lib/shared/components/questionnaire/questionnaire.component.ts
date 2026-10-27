@@ -4,6 +4,7 @@ import {
   computed,
   effect,
   ElementRef,
+  forwardRef,
   inject,
   input,
   model,
@@ -12,10 +13,12 @@ import {
   viewChild,
   ViewEncapsulation,
 } from '@angular/core';
+import { type ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 
 import type { ClassValue } from 'clsx';
 
 import { mergeClasses } from '@/shared/utils/merge-classes';
+import { noopFn } from '@/shared/utils/noop';
 
 import type {
   ZardQuestionnaireAnswers,
@@ -34,30 +37,43 @@ import { questionnaireVariants } from './questionnaire.variants';
       (input)="handleAnswerChange($event)"
       (submit)="handleSubmit($event)"
       (reset)="handleReset()"
+      (focusout)="handleTouched()"
     >
       <ng-content />
     </form>
   `,
+  providers: [
+    {
+      provide: NG_VALUE_ACCESSOR,
+      useExisting: forwardRef(() => ZardQuestionnaireComponent),
+      multi: true,
+    },
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   host: {
     class: 'block w-full',
     '[attr.data-shortcuts]': 'zShortcuts() === "none" ? null : zShortcuts()',
+    '[attr.aria-disabled]': 'disabled() ? "true" : null',
     '(document:keydown)': 'handleShortcut($event)',
   },
   exportAs: 'zQuestionnaire',
 })
-export class ZardQuestionnaireComponent {
+export class ZardQuestionnaireComponent implements ControlValueAccessor {
   private readonly elementRef = inject<ElementRef<HTMLElement>>(ElementRef);
-  private readonly form = viewChild.required<ElementRef<HTMLFormElement>>('form');
+  private readonly form = viewChild<ElementRef<HTMLFormElement>>('form');
   private readonly invalidItems = signal<ReadonlySet<string>>(new Set());
   private readonly skippedItems = signal<ReadonlySet<string>>(new Set());
+  private readonly writtenAnswers = signal<ZardQuestionnaireAnswers | null>(null);
+  private onChangeFn: (answers: ZardQuestionnaireAnswers) => void = noopFn;
+  private onTouchedFn: () => void = noopFn;
 
   readonly class = input<ClassValue>('');
   readonly zItems = input<readonly ZardQuestionnaireItem[]>([]);
   readonly zActive = model<string | undefined>(undefined);
   readonly zShortcuts = input<ZardQuestionnaireShortcutMode>('none');
   readonly zSubmit = output<ZardQuestionnaireAnswers>();
+  readonly disabled = signal(false);
 
   readonly enabledItems = computed(() => this.zItems().filter(item => !item.disabled));
   readonly activeIndex = computed(() => {
@@ -87,10 +103,18 @@ export class ZardQuestionnaireComponent {
         this.zActive.set(enabledItems[0]?.name);
       }
     });
+
+    effect(() => {
+      const form = this.form()?.nativeElement;
+      const answers = this.writtenAnswers();
+      if (form && answers !== null) {
+        queueMicrotask(() => this.applyAnswers(form, answers));
+      }
+    });
   }
 
   next(): void {
-    if (!this.canMoveNext()) {
+    if (this.disabled() || !this.canMoveNext()) {
       return;
     }
 
@@ -106,7 +130,7 @@ export class ZardQuestionnaireComponent {
   }
 
   previous(): void {
-    if (!this.canMoveBack()) {
+    if (this.disabled() || !this.canMoveBack()) {
       return;
     }
 
@@ -116,6 +140,10 @@ export class ZardQuestionnaireComponent {
   }
 
   skip(): void {
+    if (this.disabled()) {
+      return;
+    }
+
     const activeItem = this.enabledItems()[this.activeIndex()];
     if (!activeItem || activeItem.required) {
       return;
@@ -159,6 +187,10 @@ export class ZardQuestionnaireComponent {
   }
 
   handleAnswerChange(event: Event): void {
+    if (this.disabled()) {
+      return;
+    }
+
     const control = event.target;
     if (
       !(control instanceof HTMLInputElement) &&
@@ -169,16 +201,22 @@ export class ZardQuestionnaireComponent {
     }
 
     const { name } = control;
-    if (!name || !this.enabledItems().some(item => item.name === name) || !this.hasAnswer(name)) {
+    if (!name || !this.enabledItems().some(item => item.name === name)) {
       return;
     }
 
-    this.updateSet(this.skippedItems, name, false);
-    this.updateSet(this.invalidItems, name, false);
+    if (this.hasAnswer(name)) {
+      this.updateSet(this.skippedItems, name, false);
+      this.updateSet(this.invalidItems, name, false);
+    }
+    this.onChangeFn(this.collectAnswers());
   }
 
   handleSubmit(event: SubmitEvent): void {
     event.preventDefault();
+    if (this.disabled()) {
+      return;
+    }
 
     const invalidItems = this.enabledItems().filter(item => !this.isItemValid(item));
     this.invalidItems.set(new Set(invalidItems.map(item => item.name)));
@@ -189,22 +227,8 @@ export class ZardQuestionnaireComponent {
       return;
     }
 
-    const formData = new FormData(this.form().nativeElement);
-    const answers: ZardQuestionnaireAnswers = {};
-
-    for (const item of this.enabledItems()) {
-      if (this.skippedItems().has(item.name)) {
-        continue;
-      }
-
-      const values = formData.getAll(item.name).map(String);
-      if (values.length === 0) {
-        continue;
-      }
-
-      answers[item.name] = item.multiple ? values : values[0];
-    }
-
+    const answers = this.collectAnswers();
+    this.onTouchedFn();
     this.zSubmit.emit(answers);
   }
 
@@ -212,10 +236,31 @@ export class ZardQuestionnaireComponent {
     this.invalidItems.set(new Set());
     this.skippedItems.set(new Set());
     this.zActive.set(this.enabledItems()[0]?.name);
+    queueMicrotask(() => this.onChangeFn(this.collectAnswers()));
+  }
+
+  handleTouched(): void {
+    this.onTouchedFn();
+  }
+
+  registerOnChange(fn: (answers: ZardQuestionnaireAnswers) => void): void {
+    this.onChangeFn = fn;
+  }
+
+  registerOnTouched(fn: () => void): void {
+    this.onTouchedFn = fn;
+  }
+
+  setDisabledState(isDisabled: boolean): void {
+    this.disabled.set(isDisabled);
+  }
+
+  writeValue(answers: ZardQuestionnaireAnswers | null | undefined): void {
+    this.writtenAnswers.set(answers ?? {});
   }
 
   protected handleShortcut(event: KeyboardEvent): void {
-    if (this.zShortcuts() === 'none' || event.altKey || event.ctrlKey || event.metaKey) {
+    if (this.disabled() || this.zShortcuts() === 'none' || event.altKey || event.ctrlKey || event.metaKey) {
       return;
     }
 
@@ -254,7 +299,64 @@ export class ZardQuestionnaireComponent {
   }
 
   private hasAnswer(name: string): boolean {
-    return new FormData(this.form().nativeElement).getAll(name).some(value => String(value).trim().length > 0);
+    const form = this.form()?.nativeElement;
+    return Boolean(form && new FormData(form).getAll(name).some(value => String(value).trim().length > 0));
+  }
+
+  private collectAnswers(): ZardQuestionnaireAnswers {
+    const form = this.form()?.nativeElement;
+    const answers: ZardQuestionnaireAnswers = {};
+    if (!form) {
+      return answers;
+    }
+
+    const formData = new FormData(form);
+    for (const item of this.enabledItems()) {
+      if (this.skippedItems().has(item.name)) {
+        continue;
+      }
+
+      const values = formData
+        .getAll(item.name)
+        .map(String)
+        .filter(value => value.trim().length > 0);
+      if (values.length > 0) {
+        answers[item.name] = item.multiple ? values : values[0];
+      }
+    }
+    return answers;
+  }
+
+  private applyAnswers(form: HTMLFormElement, answers: ZardQuestionnaireAnswers): void {
+    for (const item of this.zItems()) {
+      const answer = answers[item.name];
+      const values = answer === undefined ? [] : Array.isArray(answer) ? answer : [answer];
+      const namedControl = form.elements.namedItem(item.name);
+      const namedControls = namedControl instanceof RadioNodeList ? Array.from(namedControl) : [namedControl];
+      const controls = namedControls.filter(
+        (control): control is HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement =>
+          control instanceof HTMLInputElement ||
+          control instanceof HTMLTextAreaElement ||
+          control instanceof HTMLSelectElement,
+      );
+      const fixedValues = new Set(
+        controls
+          .filter(
+            (control): control is HTMLInputElement =>
+              control instanceof HTMLInputElement && ['checkbox', 'radio'].includes(control.type),
+          )
+          .map(control => control.value),
+      );
+      const freeformValue = values.find(value => !fixedValues.has(value)) ?? '';
+
+      for (const control of controls) {
+        if (control instanceof HTMLInputElement && ['checkbox', 'radio'].includes(control.type)) {
+          control.checked = values.includes(control.value);
+        } else {
+          control.value = fixedValues.size === 0 ? (values[0] ?? '') : freeformValue;
+        }
+      }
+    }
   }
 
   private focusFirstAnswer(name?: string): void {
@@ -262,11 +364,11 @@ export class ZardQuestionnaireComponent {
       return;
     }
 
-    queueMicrotask(() => {
+    setTimeout(() => {
       this.elementRef.nativeElement
         .querySelector<HTMLElement>(`[data-questionnaire-name="${CSS.escape(name)}"] input:not(:disabled)`)
         ?.focus();
-    });
+    }, 0);
   }
 
   private shortcutIndex(key: string): number {
