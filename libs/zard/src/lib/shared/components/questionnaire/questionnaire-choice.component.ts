@@ -15,6 +15,7 @@ import { mergeClasses } from '@/shared/utils/merge-classes';
 import { ZardQuestionnaireItemComponent } from './questionnaire-item.component';
 import { ZardQuestionnaireComponent } from './questionnaire.component';
 import {
+  questionnaireChoiceControlVariants,
   questionnaireChoiceLabelVariants,
   questionnaireChoiceShortcutVariants,
   questionnaireChoiceVariants,
@@ -25,6 +26,7 @@ import {
   template: `
     <label class="contents">
       <input
+        data-slot="questionnaire-choice-control"
         [type]="item.zMultiple() ? 'checkbox' : 'radio'"
         [name]="item.zName()"
         [value]="zValue()"
@@ -32,6 +34,7 @@ import {
         [disabled]="disabledState()"
         [attr.aria-keyshortcuts]="questionnaire.shortcutFor(input, item.zName())"
         [attr.aria-describedby]="item.ariaDescribedBy()"
+        [class]="controlClasses"
         #input
       />
       <span data-slot="questionnaire-choice-label" [class]="labelClasses">
@@ -65,6 +68,7 @@ export class ZardQuestionnaireChoiceComponent {
 
   protected readonly disabledState = computed(() => this.zDisabled() || this.item.isDisabled());
   protected readonly classes = computed(() => mergeClasses(questionnaireChoiceVariants(), this.class()));
+  protected readonly controlClasses = questionnaireChoiceControlVariants();
   protected readonly labelClasses = questionnaireChoiceLabelVariants();
   protected readonly shortcutClasses = questionnaireChoiceShortcutVariants();
 }

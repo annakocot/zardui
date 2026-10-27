@@ -246,13 +246,14 @@ class QuestionnaireBehaviorHostComponent {
     ZardQuestionnaireTitleComponent,
   ],
   template: `
-    <z-questionnaire [zItems]="items">
+    <z-questionnaire [zItems]="items" zShortcuts="letters">
       <z-questionnaire-progress />
       <z-questionnaire-item zName="first">
         <z-questionnaire-title>Question title</z-questionnaire-title>
         <z-questionnaire-description>Question description</z-questionnaire-description>
         <z-questionnaire-choices>
           <z-questionnaire-choice zValue="answer" zDisabled>Answer</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="shortcut">Shortcut answer</z-questionnaire-choice>
           <z-questionnaire-input placeholder="Other answer" />
         </z-questionnaire-choices>
         <z-questionnaire-error>Choose an answer.</z-questionnaire-error>
@@ -1244,7 +1245,13 @@ describe('ZardQuestionnaireComponent', () => {
     const description = fixture.nativeElement.querySelector('[data-slot="questionnaire-description"]') as HTMLElement;
     const choices = fixture.nativeElement.querySelector('[data-slot="questionnaire-choices"]') as HTMLElement;
     const choice = fixture.nativeElement.querySelector('[data-slot="questionnaire-choice"]') as HTMLElement;
+    const choiceControl = fixture.nativeElement.querySelector(
+      '[data-slot="questionnaire-choice-control"]',
+    ) as HTMLInputElement;
     const choiceLabel = fixture.nativeElement.querySelector('[data-slot="questionnaire-choice-label"]') as HTMLElement;
+    const choiceShortcut = fixture.nativeElement.querySelector(
+      '[data-slot="questionnaire-choice-shortcut"]',
+    ) as HTMLElement;
     const inputWrapper = fixture.nativeElement.querySelector(
       '[data-slot="questionnaire-input-wrapper"]',
     ) as HTMLElement;
@@ -1270,8 +1277,13 @@ describe('ZardQuestionnaireComponent', () => {
     expect(choices.classList).toContain('gap-2');
     expect(choice.classList).toContain('border-input');
     expect(choice.classList).toContain('rounded-lg');
+    expect(choice.classList).toContain('items-center');
+    expect(choice.classList).not.toContain('items-start');
     expect(choice.getAttribute('data-disabled')).toBe('');
+    expect(choiceControl.classList).toContain('shrink-0');
+    expect([...choiceControl.classList].some(className => className.startsWith('translate-y-'))).toBe(false);
     expect(choiceLabel.classList).toContain('flex-1');
+    expect([...choiceShortcut.classList].some(className => className.startsWith('translate-y-'))).toBe(false);
     expect(inputWrapper.classList).toContain('relative');
     expect(inputWrapper.classList).toContain('block');
     expect(input.classList).toContain('border-input');
