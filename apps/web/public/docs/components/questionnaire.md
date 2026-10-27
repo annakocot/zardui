@@ -24,6 +24,7 @@ import {
   computed,
   effect,
   ElementRef,
+  forwardRef,
   inject,
   input,
   model,
@@ -32,10 +33,12 @@ import {
   viewChild,
   ViewEncapsulation,
 } from '@angular/core';
+import { type ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 
 import type { ClassValue } from 'clsx';
 
 import { mergeClasses } from '@/shared/utils/merge-classes';
+import { noopFn } from '@/shared/utils/noop';
 
 import type {
   ZardQuestionnaireAnswers,
@@ -54,30 +57,43 @@ import { questionnaireVariants } from './questionnaire.variants';
       (input)="handleAnswerChange($event)"
       (submit)="handleSubmit($event)"
       (reset)="handleReset()"
+      (focusout)="handleTouched()"
     >
       <ng-content />
     </form>
   `,
+  providers: [
+    {
+      provide: NG_VALUE_ACCESSOR,
+      useExisting: forwardRef(() => ZardQuestionnaireComponent),
+      multi: true,
+    },
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
   host: {
     class: 'block w-full',
     '[attr.data-shortcuts]': 'zShortcuts() === "none" ? null : zShortcuts()',
+    '[attr.aria-disabled]': 'disabled() ? "true" : null',
     '(document:keydown)': 'handleShortcut($event)',
   },
   exportAs: 'zQuestionnaire',
 })
-export class ZardQuestionnaireComponent {
+export class ZardQuestionnaireComponent implements ControlValueAccessor {
   private readonly elementRef = inject<ElementRef<HTMLElement>>(ElementRef);
-  private readonly form = viewChild.required<ElementRef<HTMLFormElement>>('form');
+  private readonly form = viewChild<ElementRef<HTMLFormElement>>('form');
   private readonly invalidItems = signal<ReadonlySet<string>>(new Set());
   private readonly skippedItems = signal<ReadonlySet<string>>(new Set());
+  private readonly writtenAnswers = signal<ZardQuestionnaireAnswers | null>(null);
+  private onChangeFn: (answers: ZardQuestionnaireAnswers) => void = noopFn;
+  private onTouchedFn: () => void = noopFn;
 
   readonly class = input<ClassValue>('');
   readonly zItems = input<readonly ZardQuestionnaireItem[]>([]);
   readonly zActive = model<string | undefined>(undefined);
   readonly zShortcuts = input<ZardQuestionnaireShortcutMode>('none');
   readonly zSubmit = output<ZardQuestionnaireAnswers>();
+  readonly disabled = signal(false);
 
   readonly enabledItems = computed(() => this.zItems().filter(item => !item.disabled));
   readonly activeIndex = computed(() => {
@@ -107,10 +123,18 @@ export class ZardQuestionnaireComponent {
         this.zActive.set(enabledItems[0]?.name);
       }
     });
+
+    effect(() => {
+      const form = this.form()?.nativeElement;
+      const answers = this.writtenAnswers();
+      if (form && answers !== null) {
+        queueMicrotask(() => this.applyAnswers(form, answers));
+      }
+    });
   }
 
   next(): void {
-    if (!this.canMoveNext()) {
+    if (this.disabled() || !this.canMoveNext()) {
       return;
     }
 
@@ -126,7 +150,7 @@ export class ZardQuestionnaireComponent {
   }
 
   previous(): void {
-    if (!this.canMoveBack()) {
+    if (this.disabled() || !this.canMoveBack()) {
       return;
     }
 
@@ -136,6 +160,10 @@ export class ZardQuestionnaireComponent {
   }
 
   skip(): void {
+    if (this.disabled()) {
+      return;
+    }
+
     const activeItem = this.enabledItems()[this.activeIndex()];
     if (!activeItem || activeItem.required) {
       return;
@@ -179,6 +207,10 @@ export class ZardQuestionnaireComponent {
   }
 
   handleAnswerChange(event: Event): void {
+    if (this.disabled()) {
+      return;
+    }
+
     const control = event.target;
     if (
       !(control instanceof HTMLInputElement) &&
@@ -189,16 +221,22 @@ export class ZardQuestionnaireComponent {
     }
 
     const { name } = control;
-    if (!name || !this.enabledItems().some(item => item.name === name) || !this.hasAnswer(name)) {
+    if (!name || !this.enabledItems().some(item => item.name === name)) {
       return;
     }
 
-    this.updateSet(this.skippedItems, name, false);
-    this.updateSet(this.invalidItems, name, false);
+    if (this.hasAnswer(name)) {
+      this.updateSet(this.skippedItems, name, false);
+      this.updateSet(this.invalidItems, name, false);
+    }
+    this.onChangeFn(this.collectAnswers());
   }
 
   handleSubmit(event: SubmitEvent): void {
     event.preventDefault();
+    if (this.disabled()) {
+      return;
+    }
 
     const invalidItems = this.enabledItems().filter(item => !this.isItemValid(item));
     this.invalidItems.set(new Set(invalidItems.map(item => item.name)));
@@ -209,22 +247,8 @@ export class ZardQuestionnaireComponent {
       return;
     }
 
-    const formData = new FormData(this.form().nativeElement);
-    const answers: ZardQuestionnaireAnswers = {};
-
-    for (const item of this.enabledItems()) {
-      if (this.skippedItems().has(item.name)) {
-        continue;
-      }
-
-      const values = formData.getAll(item.name).map(String);
-      if (values.length === 0) {
-        continue;
-      }
-
-      answers[item.name] = item.multiple ? values : values[0];
-    }
-
+    const answers = this.collectAnswers();
+    this.onTouchedFn();
     this.zSubmit.emit(answers);
   }
 
@@ -232,10 +256,31 @@ export class ZardQuestionnaireComponent {
     this.invalidItems.set(new Set());
     this.skippedItems.set(new Set());
     this.zActive.set(this.enabledItems()[0]?.name);
+    queueMicrotask(() => this.onChangeFn(this.collectAnswers()));
+  }
+
+  handleTouched(): void {
+    this.onTouchedFn();
+  }
+
+  registerOnChange(fn: (answers: ZardQuestionnaireAnswers) => void): void {
+    this.onChangeFn = fn;
+  }
+
+  registerOnTouched(fn: () => void): void {
+    this.onTouchedFn = fn;
+  }
+
+  setDisabledState(isDisabled: boolean): void {
+    this.disabled.set(isDisabled);
+  }
+
+  writeValue(answers: ZardQuestionnaireAnswers | null | undefined): void {
+    this.writtenAnswers.set(answers ?? {});
   }
 
   protected handleShortcut(event: KeyboardEvent): void {
-    if (this.zShortcuts() === 'none' || event.altKey || event.ctrlKey || event.metaKey) {
+    if (this.disabled() || this.zShortcuts() === 'none' || event.altKey || event.ctrlKey || event.metaKey) {
       return;
     }
 
@@ -274,7 +319,64 @@ export class ZardQuestionnaireComponent {
   }
 
   private hasAnswer(name: string): boolean {
-    return new FormData(this.form().nativeElement).getAll(name).some(value => String(value).trim().length > 0);
+    const form = this.form()?.nativeElement;
+    return Boolean(form && new FormData(form).getAll(name).some(value => String(value).trim().length > 0));
+  }
+
+  private collectAnswers(): ZardQuestionnaireAnswers {
+    const form = this.form()?.nativeElement;
+    const answers: ZardQuestionnaireAnswers = {};
+    if (!form) {
+      return answers;
+    }
+
+    const formData = new FormData(form);
+    for (const item of this.enabledItems()) {
+      if (this.skippedItems().has(item.name)) {
+        continue;
+      }
+
+      const values = formData
+        .getAll(item.name)
+        .map(String)
+        .filter(value => value.trim().length > 0);
+      if (values.length > 0) {
+        answers[item.name] = item.multiple ? values : values[0];
+      }
+    }
+    return answers;
+  }
+
+  private applyAnswers(form: HTMLFormElement, answers: ZardQuestionnaireAnswers): void {
+    for (const item of this.zItems()) {
+      const answer = answers[item.name];
+      const values = answer === undefined ? [] : Array.isArray(answer) ? answer : [answer];
+      const namedControl = form.elements.namedItem(item.name);
+      const namedControls = namedControl instanceof RadioNodeList ? Array.from(namedControl) : [namedControl];
+      const controls = namedControls.filter(
+        (control): control is HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement =>
+          control instanceof HTMLInputElement ||
+          control instanceof HTMLTextAreaElement ||
+          control instanceof HTMLSelectElement,
+      );
+      const fixedValues = new Set(
+        controls
+          .filter(
+            (control): control is HTMLInputElement =>
+              control instanceof HTMLInputElement && ['checkbox', 'radio'].includes(control.type),
+          )
+          .map(control => control.value),
+      );
+      const freeformValue = values.find(value => !fixedValues.has(value)) ?? '';
+
+      for (const control of controls) {
+        if (control instanceof HTMLInputElement && ['checkbox', 'radio'].includes(control.type)) {
+          control.checked = values.includes(control.value);
+        } else {
+          control.value = fixedValues.size === 0 ? (values[0] ?? '') : freeformValue;
+        }
+      }
+    }
   }
 
   private focusFirstAnswer(name?: string): void {
@@ -282,11 +384,11 @@ export class ZardQuestionnaireComponent {
       return;
     }
 
-    queueMicrotask(() => {
+    setTimeout(() => {
       this.elementRef.nativeElement
         .querySelector<HTMLElement>(`[data-questionnaire-name="${CSS.escape(name)}"] input:not(:disabled)`)
         ?.focus();
-    });
+    }, 0);
   }
 
   private shortcutIndex(key: string): number {
@@ -334,8 +436,10 @@ export const questionnaireItemVariants = cva(
 export const questionnaireChoicesVariants = cva('group/questionnaire-choices grid min-w-0 gap-2');
 
 export const questionnaireChoiceVariants = cva(
-  'group/questionnaire-choice relative flex min-h-11 cursor-pointer items-start gap-2.5 rounded-lg border border-input bg-transparent px-3 py-2.5 text-start text-sm transition-colors outline-none select-none hover:bg-muted/50 has-[input:focus-visible]:border-ring has-[input:focus-visible]:ring-3 has-[input:focus-visible]:ring-ring/50 data-invalid:border-destructive dark:bg-input/20 has-[input:checked]:border-primary/40 has-[input:checked]:bg-muted dark:has-[input:checked]:bg-muted data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:opacity-50',
+  'group/questionnaire-choice relative flex min-h-11 cursor-pointer items-center gap-2.5 rounded-lg border border-input bg-transparent px-3 py-2.5 text-start text-sm transition-colors outline-none select-none hover:bg-muted/50 has-[input:focus-visible]:border-ring has-[input:focus-visible]:ring-3 has-[input:focus-visible]:ring-ring/50 data-invalid:border-destructive dark:bg-input/20 has-[input:checked]:border-primary/40 has-[input:checked]:bg-muted dark:has-[input:checked]:bg-muted data-disabled:pointer-events-none data-disabled:cursor-not-allowed data-disabled:opacity-50',
 );
+
+export const questionnaireChoiceControlVariants = cva('shrink-0');
 
 export const questionnaireInputVariants = cva(
   'h-8 min-h-11 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-[color,box-shadow,background-color] outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:cursor-not-allowed disabled:bg-input/50 disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 sm:min-h-0 md:text-sm dark:bg-input/30 dark:disabled:bg-input/80 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 selection:bg-primary selection:text-primary-foreground placeholder:text-muted-foreground',
@@ -344,7 +448,7 @@ export const questionnaireInputVariants = cva(
 export const questionnaireChoiceLabelVariants = cva('flex min-w-0 flex-1 flex-col gap-0.5 leading-snug');
 
 export const questionnaireChoiceShortcutVariants = cva(
-  'pointer-events-none ms-auto inline-flex size-5 shrink-0 translate-y-[--spacing(0.45)] items-center justify-center rounded-md border border-input bg-background font-mono text-[0.625rem] leading-none font-medium text-muted-foreground group-has-data-[slot=questionnaire-choice-description]/questionnaire-choice:translate-y-0.5',
+  'pointer-events-none ms-auto inline-flex size-5 shrink-0 items-center justify-center rounded-md border border-input bg-background font-mono text-[0.625rem] leading-none font-medium text-muted-foreground',
 );
 
 export const questionnaireInputWrapperVariants = cva('group/questionnaire-input relative block w-full min-w-0');
@@ -374,6 +478,8 @@ export type ZardQuestionnaireVariants = VariantProps<typeof questionnaireVariant
 
 ```angular-ts
 export * from './questionnaire.component';
+export * from './questionnaire.imports';
+export * from './questionnaire.types';
 export * from './questionnaire.variants';
 ```
 
@@ -421,6 +527,7 @@ import { mergeClasses } from '@/shared/utils/merge-classes';
 import { ZardQuestionnaireItemComponent } from './questionnaire-item.component';
 import { ZardQuestionnaireComponent } from './questionnaire.component';
 import {
+  questionnaireChoiceControlVariants,
   questionnaireChoiceLabelVariants,
   questionnaireChoiceShortcutVariants,
   questionnaireChoiceVariants,
@@ -431,11 +538,15 @@ import {
   template: `
     <label class="contents">
       <input
+        data-slot="questionnaire-choice-control"
         [type]="item.zMultiple() ? 'checkbox' : 'radio'"
         [name]="item.zName()"
         [value]="zValue()"
+        [attr.checked]="checked() ? '' : null"
         [disabled]="disabledState()"
         [attr.aria-keyshortcuts]="questionnaire.shortcutFor(input, item.zName())"
+        [attr.aria-describedby]="item.ariaDescribedBy()"
+        [class]="controlClasses"
         #input
       />
       <span data-slot="questionnaire-choice-label" [class]="labelClasses">
@@ -463,11 +574,13 @@ export class ZardQuestionnaireChoiceComponent {
   protected readonly questionnaire = inject(ZardQuestionnaireComponent);
 
   readonly zValue = input.required<string>();
+  readonly checked = input(false, { transform: booleanAttribute });
   readonly zDisabled = input(false, { transform: booleanAttribute });
   readonly class = input<ClassValue>('');
 
-  protected readonly disabledState = computed(() => this.zDisabled() || this.item.zDisabled());
+  protected readonly disabledState = computed(() => this.zDisabled() || this.item.isDisabled());
   protected readonly classes = computed(() => mergeClasses(questionnaireChoiceVariants(), this.class()));
+  protected readonly controlClasses = questionnaireChoiceControlVariants();
   protected readonly labelClasses = questionnaireChoiceLabelVariants();
   protected readonly shortcutClasses = questionnaireChoiceShortcutVariants();
 }
@@ -500,12 +613,21 @@ export class ZardQuestionnaireChoicesComponent {
 ```
 
 ```angular-ts
-import { ChangeDetectionStrategy, Component, computed, input, ViewEncapsulation } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  input,
+  type OnDestroy,
+  ViewEncapsulation,
+} from '@angular/core';
 
 import type { ClassValue } from 'clsx';
 
 import { mergeClasses } from '@/shared/utils/merge-classes';
 
+import { ZardQuestionnaireItemComponent } from './questionnaire-item.component';
 import { questionnaireDescriptionVariants } from './questionnaire.variants';
 
 @Component({
@@ -519,18 +641,36 @@ import { questionnaireDescriptionVariants } from './questionnaire.variants';
   encapsulation: ViewEncapsulation.None,
   host: {
     'data-slot': 'questionnaire-description',
+    '[id]': 'item.descriptionId()',
     '[class]': 'classes()',
   },
   exportAs: 'zQuestionnaireDescription',
 })
-export class ZardQuestionnaireDescriptionComponent {
+export class ZardQuestionnaireDescriptionComponent implements OnDestroy {
+  readonly item = inject(ZardQuestionnaireItemComponent);
   readonly class = input<ClassValue>('');
   protected readonly classes = computed(() => mergeClasses(questionnaireDescriptionVariants(), this.class()));
+
+  constructor() {
+    this.item.descriptionPresent.set(true);
+  }
+
+  ngOnDestroy(): void {
+    this.item.descriptionPresent.set(false);
+  }
 }
 ```
 
 ```angular-ts
-import { ChangeDetectionStrategy, Component, computed, inject, input, ViewEncapsulation } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  input,
+  type OnDestroy,
+  ViewEncapsulation,
+} from '@angular/core';
 
 import type { ClassValue } from 'clsx';
 
@@ -550,16 +690,25 @@ import { questionnaireErrorVariants } from './questionnaire.variants';
   encapsulation: ViewEncapsulation.None,
   host: {
     'data-slot': 'questionnaire-error',
+    '[id]': 'item.errorId()',
     role: 'alert',
     '[hidden]': '!item.isInvalid()',
     '[class]': 'classes()',
   },
   exportAs: 'zQuestionnaireError',
 })
-export class ZardQuestionnaireErrorComponent {
+export class ZardQuestionnaireErrorComponent implements OnDestroy {
   readonly item = inject(ZardQuestionnaireItemComponent);
   readonly class = input<ClassValue>('');
   protected readonly classes = computed(() => mergeClasses(questionnaireErrorVariants(), this.class()));
+
+  constructor() {
+    this.item.errorPresent.set(true);
+  }
+
+  ngOnDestroy(): void {
+    this.item.errorPresent.set(false);
+  }
 }
 ```
 
@@ -588,10 +737,12 @@ import { questionnaireInputVariants, questionnaireInputWrapperVariants } from '.
       data-slot="questionnaire-input"
       [type]="type()"
       [name]="item.zName()"
+      [attr.value]="value()"
       [placeholder]="placeholder()"
       [disabled]="disabledState()"
       [attr.aria-label]="ariaLabel()"
       [attr.aria-invalid]="item.isInvalid() ? 'true' : null"
+      [attr.aria-describedby]="item.ariaDescribedBy()"
       [class]="inputClasses()"
     />
   `,
@@ -607,12 +758,13 @@ export class ZardQuestionnaireInputComponent {
   readonly item = inject(ZardQuestionnaireItemComponent);
 
   readonly type = input('text');
+  readonly value = input('');
   readonly placeholder = input('');
   readonly ariaLabel = input<string | null>(null, { alias: 'aria-label' });
   readonly zDisabled = input(false, { transform: booleanAttribute });
   readonly class = input<ClassValue>('');
 
-  protected readonly disabledState = computed(() => this.zDisabled() || this.item.zDisabled());
+  protected readonly disabledState = computed(() => this.zDisabled() || this.item.isDisabled());
   protected readonly inputClasses = computed(() => mergeClasses(questionnaireInputVariants(), this.class()));
   protected readonly wrapperClasses = questionnaireInputWrapperVariants();
 }
@@ -626,11 +778,13 @@ import {
   computed,
   inject,
   input,
+  signal,
   ViewEncapsulation,
 } from '@angular/core';
 
 import type { ClassValue } from 'clsx';
 
+import { ZardIdDirective } from '@/shared/core/directives/id.directive';
 import { mergeClasses } from '@/shared/utils/merge-classes';
 
 import { ZardQuestionnaireComponent } from './questionnaire.component';
@@ -639,7 +793,13 @@ import { questionnaireItemVariants } from './questionnaire.variants';
 @Component({
   selector: 'z-questionnaire-item',
   template: `
-    <fieldset [disabled]="zDisabled()" [attr.aria-invalid]="isInvalid() ? 'true' : null" [class]="classes()">
+    <fieldset
+      [disabled]="isDisabled()"
+      [attr.aria-invalid]="isInvalid() ? 'true' : null"
+      [attr.aria-describedby]="ariaDescribedBy()"
+      [attr.data-active]="isActive() ? '' : null"
+      [class]="classes()"
+    >
       <ng-content />
     </fieldset>
   `,
@@ -650,31 +810,53 @@ import { questionnaireItemVariants } from './questionnaire.variants';
     'data-slot': 'questionnaire-item',
     '[attr.data-questionnaire-name]': 'zName()',
     '[attr.aria-invalid]': 'isInvalid() ? "true" : null',
-    '[attr.data-disabled]': 'zDisabled() ? "" : null',
+    '[attr.data-disabled]': 'isDisabled() ? "" : null',
     '[hidden]': '!isActive()',
   },
+  hostDirectives: [ZardIdDirective],
   exportAs: 'zQuestionnaireItem',
 })
 export class ZardQuestionnaireItemComponent {
   private readonly questionnaire = inject(ZardQuestionnaireComponent);
+  private readonly uniqueId = inject(ZardIdDirective);
 
   readonly zName = input.required<string>();
   readonly zRequired = input(false, { transform: booleanAttribute });
   readonly zMultiple = input(false, { transform: booleanAttribute });
   readonly zDisabled = input(false, { transform: booleanAttribute });
+  readonly zInvalid = input(false, { transform: booleanAttribute });
   readonly class = input<ClassValue>('');
 
-  readonly isActive = computed(() => this.questionnaire.zActive() === this.zName() && !this.zDisabled());
-  readonly isInvalid = computed(() => this.questionnaire.isInvalid(this.zName()));
+  readonly descriptionPresent = signal(false);
+  readonly errorPresent = signal(false);
+  readonly descriptionId = computed(() => `${this.uniqueId.id()}-description`);
+  readonly errorId = computed(() => `${this.uniqueId.id()}-error`);
+  readonly isDisabled = computed(() => this.zDisabled() || this.questionnaire.disabled());
+  readonly isActive = computed(() => this.questionnaire.zActive() === this.zName() && !this.isDisabled());
+  readonly isInvalid = computed(() => this.zInvalid() || this.questionnaire.isInvalid(this.zName()));
+  readonly ariaDescribedBy = computed(() => {
+    const ids: string[] = [];
+    if (this.descriptionPresent()) {
+      ids.push(this.descriptionId());
+    }
+    if (this.errorPresent() && this.isInvalid()) {
+      ids.push(this.errorId());
+    }
+    return ids.length > 0 ? ids.join(' ') : null;
+  });
+
   protected readonly classes = computed(() => mergeClasses(questionnaireItemVariants(), this.class()));
 }
 ```
 
 ```angular-ts
-import { booleanAttribute, computed, Directive, inject, input } from '@angular/core';
+import { booleanAttribute, Component, computed, inject, input, ViewEncapsulation } from '@angular/core';
 
+import { NgIcon, provideIcons } from '@ng-icons/core';
+import { lucideLoaderCircle } from '@ng-icons/lucide';
 import type { ClassValue } from 'clsx';
 
+import { ZardButtonComponent } from '@/shared/components/button/button.component';
 import {
   buttonVariants,
   type ZardButtonShapeVariants,
@@ -691,8 +873,19 @@ import {
   questionnaireSubmitVariants,
 } from './questionnaire.variants';
 
-@Directive({
+const NAVIGATION_BUTTON_TEMPLATE = `
+  @if (zLoading()) {
+    <ng-icon name="lucideLoaderCircle" class="animate-spin duration-2000" />
+  }
+  <ng-content />
+`;
+
+@Component({
   selector: 'button[z-questionnaire-previous]',
+  imports: [NgIcon],
+  template: NAVIGATION_BUTTON_TEMPLATE,
+  encapsulation: ViewEncapsulation.None,
+  viewProviders: [provideIcons({ lucideLoaderCircle })],
   host: {
     type: 'button',
     'data-slot': 'questionnaire-previous',
@@ -707,17 +900,20 @@ import {
   },
   exportAs: 'zQuestionnairePrevious',
 })
-export class ZardQuestionnairePreviousDirective {
+export class ZardQuestionnairePreviousDirective extends ZardButtonComponent {
   protected readonly questionnaire = inject(ZardQuestionnaireComponent);
 
-  readonly zDisabled = input(false, { alias: 'disabled', transform: booleanAttribute });
-  readonly zType = input<ZardButtonTypeVariants>('outline');
-  readonly zSize = input<ZardButtonSizeVariants>('default');
-  readonly zShape = input<ZardButtonShapeVariants>('default');
-  readonly zLoading = input(false, { transform: booleanAttribute });
-  readonly class = input<ClassValue>('');
-  readonly disabledState = computed(() => this.zDisabled() || this.zLoading() || !this.questionnaire.canMoveBack());
-  protected readonly classes = computed(() =>
+  override readonly zDisabled = input(false, { alias: 'disabled', transform: booleanAttribute });
+  override readonly zType = input<ZardButtonTypeVariants>('outline');
+  override readonly zSize = input<ZardButtonSizeVariants>('default');
+  override readonly zShape = input<ZardButtonShapeVariants>('default');
+  override readonly zLoading = input(false, { transform: booleanAttribute });
+  override readonly class = input<ClassValue>('');
+  readonly disabledState = computed(
+    () => this.zDisabled() || this.zLoading() || this.questionnaire.disabled() || !this.questionnaire.canMoveBack(),
+  );
+
+  protected override readonly classes = computed(() =>
     mergeClasses(
       buttonVariants({
         zType: this.zType(),
@@ -738,8 +934,12 @@ export class ZardQuestionnairePreviousDirective {
   }
 }
 
-@Directive({
+@Component({
   selector: 'button[z-questionnaire-skip]',
+  imports: [NgIcon],
+  template: NAVIGATION_BUTTON_TEMPLATE,
+  encapsulation: ViewEncapsulation.None,
+  viewProviders: [provideIcons({ lucideLoaderCircle })],
   host: {
     type: 'button',
     'data-slot': 'questionnaire-skip',
@@ -754,17 +954,20 @@ export class ZardQuestionnairePreviousDirective {
   },
   exportAs: 'zQuestionnaireSkip',
 })
-export class ZardQuestionnaireSkipDirective {
+export class ZardQuestionnaireSkipDirective extends ZardButtonComponent {
   protected readonly questionnaire = inject(ZardQuestionnaireComponent);
 
-  readonly zDisabled = input(false, { alias: 'disabled', transform: booleanAttribute });
-  readonly zType = input<ZardButtonTypeVariants>('outline');
-  readonly zSize = input<ZardButtonSizeVariants>('default');
-  readonly zShape = input<ZardButtonShapeVariants>('default');
-  readonly zLoading = input(false, { transform: booleanAttribute });
-  readonly class = input<ClassValue>('');
-  readonly disabledState = computed(() => this.zDisabled() || this.zLoading() || !this.questionnaire.canSkip());
-  protected readonly classes = computed(() =>
+  override readonly zDisabled = input(false, { alias: 'disabled', transform: booleanAttribute });
+  override readonly zType = input<ZardButtonTypeVariants>('outline');
+  override readonly zSize = input<ZardButtonSizeVariants>('default');
+  override readonly zShape = input<ZardButtonShapeVariants>('default');
+  override readonly zLoading = input(false, { transform: booleanAttribute });
+  override readonly class = input<ClassValue>('');
+  readonly disabledState = computed(
+    () => this.zDisabled() || this.zLoading() || this.questionnaire.disabled() || !this.questionnaire.canSkip(),
+  );
+
+  protected override readonly classes = computed(() =>
     mergeClasses(
       buttonVariants({
         zType: this.zType(),
@@ -785,8 +988,12 @@ export class ZardQuestionnaireSkipDirective {
   }
 }
 
-@Directive({
+@Component({
   selector: 'button[z-questionnaire-next]',
+  imports: [NgIcon],
+  template: NAVIGATION_BUTTON_TEMPLATE,
+  encapsulation: ViewEncapsulation.None,
+  viewProviders: [provideIcons({ lucideLoaderCircle })],
   host: {
     type: 'button',
     'data-slot': 'questionnaire-next',
@@ -801,17 +1008,20 @@ export class ZardQuestionnaireSkipDirective {
   },
   exportAs: 'zQuestionnaireNext',
 })
-export class ZardQuestionnaireNextDirective {
+export class ZardQuestionnaireNextDirective extends ZardButtonComponent {
   protected readonly questionnaire = inject(ZardQuestionnaireComponent);
 
-  readonly zDisabled = input(false, { alias: 'disabled', transform: booleanAttribute });
-  readonly zType = input<ZardButtonTypeVariants>('default');
-  readonly zSize = input<ZardButtonSizeVariants>('default');
-  readonly zShape = input<ZardButtonShapeVariants>('default');
-  readonly zLoading = input(false, { transform: booleanAttribute });
-  readonly class = input<ClassValue>('');
-  readonly disabledState = computed(() => this.zDisabled() || this.zLoading() || !this.questionnaire.canMoveNext());
-  protected readonly classes = computed(() =>
+  override readonly zDisabled = input(false, { alias: 'disabled', transform: booleanAttribute });
+  override readonly zType = input<ZardButtonTypeVariants>('default');
+  override readonly zSize = input<ZardButtonSizeVariants>('default');
+  override readonly zShape = input<ZardButtonShapeVariants>('default');
+  override readonly zLoading = input(false, { transform: booleanAttribute });
+  override readonly class = input<ClassValue>('');
+  readonly disabledState = computed(
+    () => this.zDisabled() || this.zLoading() || this.questionnaire.disabled() || !this.questionnaire.canMoveNext(),
+  );
+
+  protected override readonly classes = computed(() =>
     mergeClasses(
       buttonVariants({
         zType: this.zType(),
@@ -832,8 +1042,12 @@ export class ZardQuestionnaireNextDirective {
   }
 }
 
-@Directive({
+@Component({
   selector: 'button[z-questionnaire-submit]',
+  imports: [NgIcon],
+  template: NAVIGATION_BUTTON_TEMPLATE,
+  encapsulation: ViewEncapsulation.None,
+  viewProviders: [provideIcons({ lucideLoaderCircle })],
   host: {
     type: 'submit',
     'data-slot': 'questionnaire-submit',
@@ -847,17 +1061,20 @@ export class ZardQuestionnaireNextDirective {
   },
   exportAs: 'zQuestionnaireSubmit',
 })
-export class ZardQuestionnaireSubmitDirective {
+export class ZardQuestionnaireSubmitDirective extends ZardButtonComponent {
   protected readonly questionnaire = inject(ZardQuestionnaireComponent);
 
-  readonly zDisabled = input(false, { alias: 'disabled', transform: booleanAttribute });
-  readonly zType = input<ZardButtonTypeVariants>('default');
-  readonly zSize = input<ZardButtonSizeVariants>('default');
-  readonly zShape = input<ZardButtonShapeVariants>('default');
-  readonly zLoading = input(false, { transform: booleanAttribute });
-  readonly class = input<ClassValue>('');
-  readonly disabledState = computed(() => this.zDisabled() || this.zLoading() || !this.questionnaire.canSubmit());
-  protected readonly classes = computed(() =>
+  override readonly zDisabled = input(false, { alias: 'disabled', transform: booleanAttribute });
+  override readonly zType = input<ZardButtonTypeVariants>('default');
+  override readonly zSize = input<ZardButtonSizeVariants>('default');
+  override readonly zShape = input<ZardButtonShapeVariants>('default');
+  override readonly zLoading = input(false, { transform: booleanAttribute });
+  override readonly class = input<ClassValue>('');
+  readonly disabledState = computed(
+    () => this.zDisabled() || this.zLoading() || this.questionnaire.disabled() || !this.questionnaire.canSubmit(),
+  );
+
+  protected override readonly classes = computed(() =>
     mergeClasses(
       buttonVariants({
         zType: this.zType(),
@@ -886,8 +1103,7 @@ import { questionnaireProgressVariants } from './questionnaire.variants';
 @Component({
   selector: 'z-questionnaire-progress',
   template: `
-    Question {{ current() }} of {{ total() }}
-    <ng-content />
+    <ng-content>Question {{ current() }} of {{ total() }}</ng-content>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
   encapsulation: ViewEncapsulation.None,
@@ -1025,152 +1241,120 @@ export interface ZardQuestionnaireItem {
 
 ```angular-ts
 import { ZardQuestionnaireImports } from '@/shared/components/questionnaire/questionnaire.imports';
+import type {
+  ZardQuestionnaireAnswers,
+  ZardQuestionnaireChoice,
+  ZardQuestionnaireItem,
+} from '@/shared/components/questionnaire/questionnaire.types';
 ```
 
+```angular-ts
+interface QuestionnaireUsageItem extends ZardQuestionnaireItem {
+  prompt: string;
+  description: string;
+  choices: readonly (ZardQuestionnaireChoice & { description?: string })[];
+  input?: { label: string; placeholder: string };
+}
+
+readonly items: readonly QuestionnaireUsageItem[] = [
+  {
+    name: 'direction',
+    required: true,
+    prompt: 'What should we prototype next?',
+    description: 'Choose a direction or write your own.',
+    choices: [
+      {
+        value: 'delegation',
+        label: 'Delegation',
+        description: 'Show how work moves to a specialist.',
+      },
+      {
+        value: 'questions',
+        label: 'Question prompts',
+        description: 'Show choices while the interface waits.',
+      },
+      { value: 'both', label: 'Both together' },
+    ],
+    input: { label: 'Another answer', placeholder: 'Type another answer…' },
+  },
+  {
+    name: 'detail',
+    required: false,
+    prompt: 'How much detail should it include?',
+    description: 'Skip this if you are not sure yet.',
+    choices: [
+      { value: 'focused', label: 'Focused' },
+      { value: 'complete', label: 'Complete flow' },
+    ],
+  },
+];
+```
+
+Define the collection once: pass it to z-questionnaire for progress, actions, and shortcuts, then project it into the parts.
+
 ```angular-html
-<z-questionnaire [zItems]="items">
-  <!-- questionnaire items -->
+<z-questionnaire [zItems]="items" (zSubmit)="handleSubmit($event)">
+  <z-questionnaire-progress />
+
+  @for (question of items; track question.name) {
+    <z-questionnaire-item [zName]="question.name" [zRequired]="question.required">
+      <z-questionnaire-title>{{ question.prompt }}</z-questionnaire-title>
+      <z-questionnaire-description>{{ question.description }}</z-questionnaire-description>
+      <z-questionnaire-choices>
+        @for (choice of question.choices; track choice.value) {
+          <z-questionnaire-choice [zValue]="choice.value">
+            <span class="font-medium">{{ choice.label }}</span>
+            @if (choice.description; as description) {
+              <span data-slot="questionnaire-choice-description" class="text-muted-foreground">
+                {{ description }}
+              </span>
+            }
+          </z-questionnaire-choice>
+        }
+
+        @if (question.input; as input) {
+          <z-questionnaire-input [aria-label]="input.label" [placeholder]="input.placeholder" />
+        }
+      </z-questionnaire-choices>
+      <z-questionnaire-error />
+    </z-questionnaire-item>
+  }
+
+  <z-questionnaire-actions>
+    <button type="button" z-questionnaire-previous>Previous</button>
+    <button type="button" z-questionnaire-skip>Skip</button>
+    <button type="button" z-questionnaire-next>Next</button>
+    <button type="submit" z-questionnaire-submit>Submit</button>
+  </z-questionnaire-actions>
 </z-questionnaire>
 ```
 
-## Examples
-
-### Default
-
 ```angular-ts
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
-
-import { ZardSonnerService } from '@/shared/components/sonner/sonner.service';
-
-import { ZardQuestionnaireImports } from '../questionnaire.imports';
-import type { ZardQuestionnaireAnswer, ZardQuestionnaireAnswers, ZardQuestionnaireItem } from '../questionnaire.types';
-
-const DIRECTION_LABELS: Record<string, string> = {
-  'tool-calls': 'tool call timeline',
-  approvals: 'approval checkpoints',
-  handoffs: 'sub-agent handoffs',
-};
-
-const UPDATE_LABELS: Record<string, string> = {
-  progress: 'progress',
-  decisions: 'decisions',
-  risks: 'risks',
-  'next-step': 'next step',
-};
-
-const TIMING_LABELS: Record<string, string> = {
-  now: 'now',
-  'next-cycle': 'next development cycle',
-  backlog: 'backlog',
-};
-
-@Component({
-  selector: 'z-demo-questionnaire-default',
-  imports: [ZardQuestionnaireImports],
-  template: `
-    <z-questionnaire [zItems]="items" zShortcuts="letters" (zSubmit)="save($event)">
-      <z-questionnaire-progress />
-
-      <z-questionnaire-item zName="goal" zRequired>
-        <z-questionnaire-title>What should the agent build next?</z-questionnaire-title>
-        <z-questionnaire-description>Choose a direction or describe another task.</z-questionnaire-description>
-        <z-questionnaire-choices>
-          <z-questionnaire-choice zValue="tool-calls">
-            <span>Tool call timeline</span>
-            <span data-slot="questionnaire-choice-description" class="text-muted-foreground">
-              Show what the agent ran and what came back.
-            </span>
-          </z-questionnaire-choice>
-          <z-questionnaire-choice zValue="approvals">
-            <span>Approval checkpoints</span>
-            <span data-slot="questionnaire-choice-description" class="text-muted-foreground">
-              Ask before sensitive or destructive actions.
-            </span>
-          </z-questionnaire-choice>
-          <z-questionnaire-choice zValue="handoffs">
-            <span>Sub-agent handoffs</span>
-            <span data-slot="questionnaire-choice-description" class="text-muted-foreground">
-              Make delegated work and results easier to follow.
-            </span>
-          </z-questionnaire-choice>
-          <z-questionnaire-input placeholder="Describe another feature..." aria-label="Describe another feature" />
-        </z-questionnaire-choices>
-        <z-questionnaire-error />
-      </z-questionnaire-item>
-
-      <z-questionnaire-item zName="signals" zMultiple>
-        <z-questionnaire-title>What should every progress update include?</z-questionnaire-title>
-        <z-questionnaire-description>Select all that apply, or skip this question.</z-questionnaire-description>
-        <z-questionnaire-choices>
-          <z-questionnaire-choice zValue="progress">Progress made</z-questionnaire-choice>
-          <z-questionnaire-choice zValue="decisions">Decisions taken</z-questionnaire-choice>
-          <z-questionnaire-choice zValue="risks">Risks or blockers</z-questionnaire-choice>
-          <z-questionnaire-choice zValue="next-step">Next step</z-questionnaire-choice>
-        </z-questionnaire-choices>
-        <z-questionnaire-error />
-      </z-questionnaire-item>
-
-      <z-questionnaire-item zName="timing" zRequired>
-        <z-questionnaire-title>When should work begin?</z-questionnaire-title>
-        <z-questionnaire-description>Choose one option.</z-questionnaire-description>
-        <z-questionnaire-choices>
-          <z-questionnaire-choice zValue="now">Start now</z-questionnaire-choice>
-          <z-questionnaire-choice zValue="next-cycle">Next development cycle</z-questionnaire-choice>
-          <z-questionnaire-choice zValue="backlog">Add it to the backlog</z-questionnaire-choice>
-        </z-questionnaire-choices>
-        <z-questionnaire-error />
-      </z-questionnaire-item>
-
-      <z-questionnaire-actions>
-        <button type="button" z-questionnaire-previous>Back</button>
-        <button type="button" z-questionnaire-skip>Skip</button>
-        <button type="button" z-questionnaire-next>Next</button>
-        <button type="submit" z-questionnaire-submit>Finish</button>
-      </z-questionnaire-actions>
-    </z-questionnaire>
-  `,
-  changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'block w-full' },
-})
-export class ZardDemoQuestionnaireDefaultComponent {
-  private readonly sonner = inject(ZardSonnerService);
-
-  readonly items: ZardQuestionnaireItem[] = [
-    { name: 'goal', required: true },
-    { name: 'updates', multiple: true },
-    { name: 'start', required: true },
-  ];
-
-  save(answers: ZardQuestionnaireAnswers): void {
-    this.sonner.show('Agent plan saved', {
-      description: [
-        `Direction: ${this.formatDirection(answers['goal'])}`,
-        `Progress signals: ${this.formatUpdates(answers['updates'])}`,
-        `Timing: ${this.formatTiming(answers['start'])}`,
-      ].join(' · '),
-    });
-  }
-
-  private formatDirection(answer: ZardQuestionnaireAnswer | undefined): string {
-    const value = this.singleValue(answer);
-    return value ? (DIRECTION_LABELS[value] ?? value) : 'None';
-  }
-
-  private formatUpdates(answer: ZardQuestionnaireAnswer | undefined): string {
-    const values = Array.isArray(answer) ? answer : answer ? [answer] : [];
-    return values.length ? values.map(value => UPDATE_LABELS[value] ?? value).join(', ') : 'None';
-  }
-
-  private formatTiming(answer: ZardQuestionnaireAnswer | undefined): string {
-    const value = this.singleValue(answer);
-    return value ? (TIMING_LABELS[value] ?? value) : 'None';
-  }
-
-  private singleValue(answer: ZardQuestionnaireAnswer | undefined): string | undefined {
-    return Array.isArray(answer) ? answer[0] : answer;
-  }
+handleSubmit(answers: ZardQuestionnaireAnswers): void {
+  // answers['direction'], answers['detail'], and answers from multiple-choice items.
 }
 ```
+
+## Composition
+
+```text
+z-questionnaire
+└── z-questionnaire-progress
+└── z-questionnaire-item
+│   ├── z-questionnaire-title
+│   ├── z-questionnaire-description
+│   ├── z-questionnaire-choices
+│   │   ├── z-questionnaire-choice
+│   │   └──z-questionnaire-input
+│   └── z-questionnaire-error
+└── z-questionnaire-actions
+    ├── z-questionnaire-previous
+    ├── z-questionnaire-skip
+    ├── z-questionnaire-next
+    └── z-questionnaire-submit
+```
+
+## Examples
 
 ### Multiple Selection
 
@@ -1224,20 +1408,20 @@ export class ZardDemoQuestionnaireMultipleSelectionComponent {
 
 ### Freeform Answer
 
-Compose `QuestionnaireInput` with fixed choices when the user can provide another answer.
+Compose `z-questionnaire-input` with fixed choices when the user can provide another answer.
 
 ```angular-ts
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
 import { ZardSonnerService } from '../../sonner';
 import { ZardQuestionnaireImports } from '../questionnaire.imports';
-import type { ZardQuestionnaireAnswers } from '../questionnaire.types';
+import type { ZardQuestionnaireAnswers, ZardQuestionnaireItem } from '../questionnaire.types';
 
 @Component({
   selector: 'z-demo-questionnaire-freeform-answer',
   imports: [ZardQuestionnaireImports],
   template: `
-    <z-questionnaire (zSubmit)="save($event)">
+    <z-questionnaire [zItems]="items" (zSubmit)="save($event)">
       <z-questionnaire-item zName="approach" [zRequired]="true">
         <z-questionnaire-title>How should the agent approach this refactor?</z-questionnaire-title>
         <z-questionnaire-description>
@@ -1263,6 +1447,7 @@ import type { ZardQuestionnaireAnswers } from '../questionnaire.types';
 })
 export class ZardDemoQuestionnaireFreeformAnswerComponent {
   private readonly sonner = inject(ZardSonnerService);
+  readonly items: ZardQuestionnaireItem[] = [{ name: 'approach', required: true }];
 
   save(answers: ZardQuestionnaireAnswers): void {
     const context = answers['approach'];
@@ -1276,7 +1461,7 @@ export class ZardDemoQuestionnaireFreeformAnswerComponent {
 
 ### Explicit Skip
 
-Add `QuestionnaireSkip` when an optional item may be intentionally left unanswered.
+Add `z-questionnaire-skip` when an optional item may be intentionally left unanswered.
 
 ```angular-ts
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
@@ -1423,8 +1608,8 @@ import type {
   selector: 'z-demo-questionnaire-shortcuts',
   imports: [ZardQuestionnaireImports, ZardComboboxImports],
   template: `
-    <div>
-      <z-combobox [(zValue)]="value">
+    <div class="flex min-h-[415px] w-full flex-col justify-between">
+      <z-combobox class="w-32 self-end" [searchable]="false" [(zValue)]="value">
         <z-combobox-input />
         <z-combobox-content>
           <z-combobox-list>
@@ -1434,41 +1619,36 @@ import type {
           </z-combobox-list>
         </z-combobox-content>
       </z-combobox>
-      <div>
-        <z-questionnaire [zItems]="items()" [zShortcuts]="shortcutMode()" (zSubmit)="save($event)">
-          <z-questionnaire-item zName="approach" [zRequired]="true">
-            <z-questionnaire-title>How should the agent approach this refactor?</z-questionnaire-title>
-            <z-questionnaire-description>
-              Choose a strategy or write a more specific instruction.
-            </z-questionnaire-description>
 
-            <z-questionnaire-choices>
-              <z-questionnaire-choice zValue="incremental">Make smallest safe change</z-questionnaire-choice>
-              <z-questionnaire-choice zValue="module">Refactor one module at a time</z-questionnaire-choice>
-              <z-questionnaire-choice zValue="rewrite">Replace the implementation completely</z-questionnaire-choice>
-              <z-questionnaire-input
-                placeholder="Describe another approach..."
-                aria-label="Describe another approach"
-              />
-            </z-questionnaire-choices>
+      <z-questionnaire [zItems]="items" [zShortcuts]="shortcutMode()" (zSubmit)="save($event)">
+        <z-questionnaire-item zName="next" zRequired>
+          <z-questionnaire-title>What should the agent do next?</z-questionnaire-title>
+          <z-questionnaire-description class="-mt-4 -mb-1">
+            Use the displayed shortcut or navigate with the keyboard.
+          </z-questionnaire-description>
 
-            <z-questionnaire-error />
-          </z-questionnaire-item>
+          <z-questionnaire-choices>
+            <z-questionnaire-choice zValue="inspect">Inspect the implementation</z-questionnaire-choice>
+            <z-questionnaire-choice zValue="test">Run the relevant tests</z-questionnaire-choice>
+            <z-questionnaire-choice zValue="patch">Prepare the patch</z-questionnaire-choice>
+          </z-questionnaire-choices>
 
-          <z-questionnaire-actions>
-            <button type="submit" z-questionnaire-submit>Use this approach</button>
-          </z-questionnaire-actions>
-        </z-questionnaire>
-      </div>
+          <z-questionnaire-error />
+        </z-questionnaire-item>
+
+        <z-questionnaire-actions>
+          <button type="submit" z-questionnaire-submit>Confirm action</button>
+        </z-questionnaire-actions>
+      </z-questionnaire>
     </div>
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  host: { class: 'flex w-full flex-col gap-6' },
+  host: { class: 'block w-full' },
 })
 export class ZardDemoQuestionnaireShortcutsComponent {
   private readonly sonner = inject(ZardSonnerService);
 
-  readonly items = signal<readonly ZardQuestionnaireItem[]>([{ name: 'approach', required: true }]);
+  readonly items: readonly ZardQuestionnaireItem[] = [{ name: 'next', required: true }];
   readonly value = signal<string | string[] | null>('letters');
   readonly shortcutMode = computed<ZardQuestionnaireShortcutMode>(() => {
     const value = this.value();
@@ -1476,23 +1656,1097 @@ export class ZardDemoQuestionnaireShortcutsComponent {
   });
 
   save(answers: ZardQuestionnaireAnswers): void {
-    const context = answers['approach'];
+    const action = answers['next'];
 
-    this.sonner.show('Next action selected', {
-      description: `Context: ${Array.isArray(context) ? context.join(', ') : context}`,
+    this.sonner.show('Action confirmed', {
+      description: `Next: ${Array.isArray(action) ? action.join(', ') : action}`,
     });
   }
 }
 ```
 
+### Custom Validation
+
+Combine controlled navigation with an external schema such as Zod to return to an invalid item and present its error.
+
+```angular-ts
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+
+import { z } from 'zod';
+
+import { ZardCardImports } from '@/shared/components/card/card.imports';
+import { ZardSonnerService } from '@/shared/components/sonner/sonner.service';
+
+import { ZardQuestionnaireImports } from '../questionnaire.imports';
+import type { ZardQuestionnaireAnswers, ZardQuestionnaireItem } from '../questionnaire.types';
+
+const questionnaireSchema = z
+  .object({
+    detail: z.enum(['summary', 'complete']),
+    audience: z.enum(['team', 'public']),
+  })
+  .superRefine((answers, context) => {
+    if (answers.audience === 'public' && answers.detail === 'summary') {
+      context.addIssue({
+        code: 'custom',
+        message: 'Public answers need enough context. Choose a complete answer.',
+        path: ['detail'],
+      });
+    }
+  });
+
+type QuestionnaireItemName = keyof z.infer<typeof questionnaireSchema>;
+type QuestionnaireErrors = Partial<Record<QuestionnaireItemName, string>>;
+
+@Component({
+  selector: 'z-demo-questionnaire-custom-validation',
+  imports: [ZardCardImports, ZardQuestionnaireImports],
+  template: `
+    <z-questionnaire class="mx-auto max-w-md" [zItems]="items" [(zActive)]="activeItem" (zSubmit)="validate($event)">
+      <z-card class="w-full">
+        <z-questionnaire-item zName="detail" zRequired [zInvalid]="hasError('detail')">
+          <z-card-header>
+            <z-questionnaire-title>How much detail should the answer include?</z-questionnaire-title>
+            <z-questionnaire-description>Choose the response depth.</z-questionnaire-description>
+            <z-card-action>
+              <z-questionnaire-progress class="min-w-0" />
+            </z-card-action>
+          </z-card-header>
+          <z-card-content>
+            <z-questionnaire-choices>
+              <z-questionnaire-choice zValue="summary" (change)="clearError('detail')">
+                Concise summary
+              </z-questionnaire-choice>
+              <z-questionnaire-choice zValue="complete" (change)="clearError('detail')">
+                Complete answer
+              </z-questionnaire-choice>
+            </z-questionnaire-choices>
+            <z-questionnaire-error>{{ errorFor('detail') }}</z-questionnaire-error>
+          </z-card-content>
+        </z-questionnaire-item>
+
+        <z-questionnaire-item zName="audience" zRequired [zInvalid]="hasError('audience')">
+          <z-card-header>
+            <z-questionnaire-title>Who will read the answer?</z-questionnaire-title>
+            <z-questionnaire-description>Public answers require complete context.</z-questionnaire-description>
+            <z-card-action>
+              <z-questionnaire-progress class="min-w-0" />
+            </z-card-action>
+          </z-card-header>
+          <z-card-content>
+            <z-questionnaire-choices>
+              <z-questionnaire-choice zValue="team" (change)="clearError('audience')">My team</z-questionnaire-choice>
+              <z-questionnaire-choice zValue="public" (change)="clearError('audience')">
+                Public audience
+              </z-questionnaire-choice>
+            </z-questionnaire-choices>
+            <z-questionnaire-error>{{ errorFor('audience') }}</z-questionnaire-error>
+          </z-card-content>
+        </z-questionnaire-item>
+
+        <z-card-footer>
+          <z-questionnaire-actions>
+            <button type="button" z-questionnaire-previous>Previous</button>
+            <button type="button" z-questionnaire-next>Next</button>
+            <button type="submit" z-questionnaire-submit>Validate answers</button>
+          </z-questionnaire-actions>
+        </z-card-footer>
+      </z-card>
+    </z-questionnaire>
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block w-full' },
+})
+export class ZardDemoQuestionnaireCustomValidationComponent {
+  private readonly sonner = inject(ZardSonnerService);
+
+  readonly items: ZardQuestionnaireItem[] = [
+    { name: 'detail', required: true },
+    { name: 'audience', required: true },
+  ];
+
+  readonly activeItem = signal<QuestionnaireItemName>('detail');
+  readonly errors = signal<QuestionnaireErrors>({});
+
+  hasError(name: QuestionnaireItemName): boolean {
+    return Boolean(this.errors()[name]);
+  }
+
+  errorFor(name: QuestionnaireItemName): string {
+    return this.errors()[name] ?? 'Choose an answer to continue.';
+  }
+
+  clearError(name: QuestionnaireItemName): void {
+    this.errors.update(currentErrors => {
+      if (!currentErrors[name]) {
+        return currentErrors;
+      }
+
+      const nextErrors = { ...currentErrors };
+      delete nextErrors[name];
+      return nextErrors;
+    });
+  }
+
+  validate(answers: ZardQuestionnaireAnswers): void {
+    const result = questionnaireSchema.safeParse(answers);
+
+    if (result.success) {
+      this.errors.set({});
+      this.sonner.show('Agent response configured', {
+        description: `Detail: ${result.data.detail} · Audience: ${result.data.audience}`,
+      });
+      return;
+    }
+
+    const nextErrors: QuestionnaireErrors = {};
+
+    for (const issue of result.error.issues) {
+      const name = issue.path[0];
+      if ((name === 'detail' || name === 'audience') && !nextErrors[name]) {
+        nextErrors[name] = issue.message;
+      }
+    }
+
+    this.errors.set(nextErrors);
+
+    const firstInvalidItem = result.error.issues[0]?.path[0];
+    if (firstInvalidItem === 'detail' || firstInvalidItem === 'audience') {
+      this.activeItem.set(firstInvalidItem);
+    }
+  }
+}
+```
+
+### Controlled
+
+Control the active item from host state, such as returning to an invalid step.
+
+```angular-ts
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+
+import { ZardSonnerService } from '@/shared/components/sonner/sonner.service';
+
+import { ZardQuestionnaireImports } from '../questionnaire.imports';
+import type { ZardQuestionnaireAnswers, ZardQuestionnaireItem } from '../questionnaire.types';
+
+type QuestionnaireItemName = 'scope' | 'checks' | 'output';
+
+const ITEM_LABELS: Record<QuestionnaireItemName, string> = {
+  scope: 'Change scope',
+  checks: 'Verification level',
+  output: 'Output format',
+};
+
+@Component({
+  selector: 'z-demo-questionnaire-controlled',
+  imports: [ZardQuestionnaireImports],
+  template: `
+    <div class="relative mx-auto flex size-full max-w-md flex-col">
+      <p class="text-muted-foreground absolute inset-e-0 top-0 text-sm" role="status">
+        Current checkpoint: {{ activeItemLabel() }}
+      </p>
+
+      <z-questionnaire class="mt-auto" [zItems]="items" [(zActive)]="activeItem" (zSubmit)="saveWorkflow($event)">
+        <z-questionnaire-progress />
+
+        <z-questionnaire-item zName="scope" zRequired>
+          <z-questionnaire-title>What may the agent change?</z-questionnaire-title>
+          <z-questionnaire-description>
+            The host stores the active checkpoint while Questionnaire navigates.
+          </z-questionnaire-description>
+          <z-questionnaire-choices>
+            <z-questionnaire-choice zValue="component">Only the target component</z-questionnaire-choice>
+            <z-questionnaire-choice zValue="tests">Component and related tests</z-questionnaire-choice>
+            <z-questionnaire-choice zValue="feature">The complete feature area</z-questionnaire-choice>
+          </z-questionnaire-choices>
+          <z-questionnaire-error />
+        </z-questionnaire-item>
+
+        <z-questionnaire-item zName="checks" zRequired>
+          <z-questionnaire-title>Which verification level should it use?</z-questionnaire-title>
+          <z-questionnaire-choices>
+            <z-questionnaire-choice zValue="targeted">Targeted tests</z-questionnaire-choice>
+            <z-questionnaire-choice zValue="package">Package tests and typecheck</z-questionnaire-choice>
+            <z-questionnaire-choice zValue="full">Full workspace verification</z-questionnaire-choice>
+          </z-questionnaire-choices>
+          <z-questionnaire-error />
+        </z-questionnaire-item>
+
+        <z-questionnaire-item zName="output" zRequired>
+          <z-questionnaire-title>What should the agent return when finished?</z-questionnaire-title>
+          <z-questionnaire-choices>
+            <z-questionnaire-choice zValue="summary">Concise summary</z-questionnaire-choice>
+            <z-questionnaire-choice zValue="diff">Summary with changed files</z-questionnaire-choice>
+            <z-questionnaire-choice zValue="handoff">Detailed implementation handoff</z-questionnaire-choice>
+          </z-questionnaire-choices>
+          <z-questionnaire-error />
+        </z-questionnaire-item>
+
+        <z-questionnaire-actions>
+          <button type="button" z-questionnaire-previous>Previous</button>
+          <button type="button" z-questionnaire-next>Next</button>
+          <button type="submit" z-questionnaire-submit>Save workflow</button>
+        </z-questionnaire-actions>
+      </z-questionnaire>
+    </div>
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block h-full w-full' },
+})
+export class ZardDemoQuestionnaireControlledComponent {
+  private readonly sonner = inject(ZardSonnerService);
+
+  readonly items: ZardQuestionnaireItem[] = [
+    { name: 'scope', required: true },
+    { name: 'checks', required: true },
+    { name: 'output', required: true },
+  ];
+
+  readonly activeItem = signal<QuestionnaireItemName>('scope');
+  readonly activeItemLabel = computed(() => ITEM_LABELS[this.activeItem()]);
+
+  saveWorkflow(answers: ZardQuestionnaireAnswers): void {
+    this.sonner.show('Workflow saved', {
+      description: `Scope: ${answers['scope']} · Verification: ${answers['checks']} · Output: ${answers['output']}`,
+    });
+  }
+}
+```
+
+### Resume
+
+Restore a saved active item and default answers, then reset changes back to that saved state.
+
+```angular-ts
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+
+import { ZardButtonComponent } from '@/shared/components/button/button.component';
+import { ZardSonnerService } from '@/shared/components/sonner/sonner.service';
+
+import { ZardQuestionnaireImports } from '../questionnaire.imports';
+import type { ZardQuestionnaireAnswer, ZardQuestionnaireAnswers, ZardQuestionnaireItem } from '../questionnaire.types';
+
+@Component({
+  selector: 'z-demo-questionnaire-resume',
+  imports: [ZardQuestionnaireImports, ZardButtonComponent],
+  template: `
+    <z-questionnaire [zItems]="items" [(zActive)]="activeItem" (reset)="restoreDraft()" (zSubmit)="updateDraft($event)">
+      <z-questionnaire-progress />
+
+      <z-questionnaire-item zName="change" zRequired>
+        <z-questionnaire-title>What kind of migration is this?</z-questionnaire-title>
+        <z-questionnaire-description>This answer was saved during the previous session.</z-questionnaire-description>
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="incremental" checked>Incremental migration</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="cutover">Single cutover</z-questionnaire-choice>
+        </z-questionnaire-choices>
+        <z-questionnaire-error />
+      </z-questionnaire-item>
+
+      <z-questionnaire-item zName="verification" zMultiple zRequired>
+        <z-questionnaire-title>How should the migration be verified?</z-questionnaire-title>
+        <z-questionnaire-description>
+          These checks were selected during the previous session.
+        </z-questionnaire-description>
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="tests" checked>Run migration tests</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="typecheck" checked>Run the typecheck</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="manual">Perform a manual smoke test</z-questionnaire-choice>
+        </z-questionnaire-choices>
+        <z-questionnaire-error />
+      </z-questionnaire-item>
+
+      <z-questionnaire-item zName="notes">
+        <z-questionnaire-title>Anything else the agent should remember?</z-questionnaire-title>
+        <z-questionnaire-description>This note was saved with the draft.</z-questionnaire-description>
+        <z-questionnaire-input aria-label="Saved migration note" value="Keep the existing public API stable." />
+      </z-questionnaire-item>
+
+      <z-questionnaire-actions class="grid-cols-[auto_minmax(0,1fr)_auto]">
+        <button type="button" z-questionnaire-previous>Previous</button>
+        <button type="reset" z-button zType="outline" class="justify-self-start">Reset changes</button>
+        <button type="button" z-questionnaire-next>Next</button>
+        <button type="submit" z-questionnaire-submit>Update draft</button>
+      </z-questionnaire-actions>
+    </z-questionnaire>
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block w-full' },
+})
+export class ZardDemoQuestionnaireResumeComponent {
+  private readonly sonner = inject(ZardSonnerService);
+
+  readonly items: ZardQuestionnaireItem[] = [
+    { name: 'change', required: true },
+    { name: 'verification', multiple: true, required: true },
+    { name: 'notes' },
+  ];
+
+  readonly activeItem = signal('verification');
+
+  restoreDraft(): void {
+    this.activeItem.set('verification');
+    this.sonner.show('Saved answers restored');
+  }
+
+  updateDraft(answers: ZardQuestionnaireAnswers): void {
+    this.sonner.show('Draft updated', {
+      description: [
+        `Migration: ${this.singleValue(answers['change']) ?? 'None'}`,
+        `Verification: ${this.values(answers['verification']).join(', ') || 'None'}`,
+        `Notes: ${this.singleValue(answers['notes']) || 'None'}`,
+      ].join(' · '),
+    });
+  }
+
+  private values(answer: ZardQuestionnaireAnswer | undefined): string[] {
+    return Array.isArray(answer) ? answer : answer ? [answer] : [];
+  }
+
+  private singleValue(answer: ZardQuestionnaireAnswer | undefined): string | undefined {
+    return this.values(answer)[0];
+  }
+}
+```
+
+### Conditional Items
+
+Disable items that do not apply to the user's earlier answers.
+
+```angular-ts
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+
+import { ZardSonnerService } from '@/shared/components/sonner/sonner.service';
+
+import { ZardQuestionnaireImports } from '../questionnaire.imports';
+import type { ZardQuestionnaireAnswer, ZardQuestionnaireAnswers, ZardQuestionnaireItem } from '../questionnaire.types';
+
+type Runtime = 'local' | 'cloud';
+
+@Component({
+  selector: 'z-demo-questionnaire-conditional-items',
+  imports: [ZardQuestionnaireImports],
+  template: `
+    <z-questionnaire [zItems]="items()" (zSubmit)="saveExecutionPlan($event)">
+      <z-questionnaire-progress />
+
+      <z-questionnaire-item zName="runtime" zRequired>
+        <z-questionnaire-title>Where should the agent run?</z-questionnaire-title>
+        <z-questionnaire-description>Cloud runs add an environment question to this flow.</z-questionnaire-description>
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="local" [checked]="runtime() === 'local'" (change)="runtime.set('local')">
+            Local workspace
+          </z-questionnaire-choice>
+          <z-questionnaire-choice zValue="cloud" [checked]="runtime() === 'cloud'" (change)="runtime.set('cloud')">
+            Cloud workspace
+          </z-questionnaire-choice>
+        </z-questionnaire-choices>
+        <z-questionnaire-error />
+      </z-questionnaire-item>
+
+      <z-questionnaire-item zName="environment" [zDisabled]="runtime() !== 'cloud'" zRequired>
+        <z-questionnaire-title>Which cloud environment should it use?</z-questionnaire-title>
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="preview">Preview</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="staging">Staging</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="isolated">Isolated sandbox</z-questionnaire-choice>
+        </z-questionnaire-choices>
+        <z-questionnaire-error />
+      </z-questionnaire-item>
+
+      <z-questionnaire-item zName="approval" zRequired>
+        <z-questionnaire-title>When should the agent request approval?</z-questionnaire-title>
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="writes">Before writing files</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="commands">Before running commands</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="sensitive">Only for sensitive actions</z-questionnaire-choice>
+        </z-questionnaire-choices>
+        <z-questionnaire-error />
+      </z-questionnaire-item>
+
+      <z-questionnaire-actions>
+        <button type="button" z-questionnaire-previous>Previous</button>
+        <button type="button" z-questionnaire-next>Next</button>
+        <button type="submit" z-questionnaire-submit>Save execution plan</button>
+      </z-questionnaire-actions>
+    </z-questionnaire>
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block w-full' },
+})
+export class ZardDemoQuestionnaireConditionalItemsComponent {
+  private readonly sonner = inject(ZardSonnerService);
+
+  readonly runtime = signal<Runtime>('local');
+  readonly items = computed<readonly ZardQuestionnaireItem[]>(() => [
+    { name: 'runtime', required: true },
+    { name: 'environment', required: true, disabled: this.runtime() !== 'cloud' },
+    { name: 'approval', required: true },
+  ]);
+
+  saveExecutionPlan(answers: ZardQuestionnaireAnswers): void {
+    this.sonner.show('Execution plan saved', {
+      description: [
+        `Runtime: ${this.singleValue(answers['runtime']) ?? 'None'}`,
+        `Environment: ${this.singleValue(answers['environment']) ?? 'Not applicable'}`,
+        `Approval: ${this.singleValue(answers['approval']) ?? 'None'}`,
+      ].join(' · '),
+    });
+  }
+
+  private singleValue(answer: ZardQuestionnaireAnswer | undefined): string | undefined {
+    return Array.isArray(answer) ? answer[0] : answer;
+  }
+}
+```
+
+### Navigation State
+
+Use the active item status to disable navigation until the current question has an answer.
+
+```angular-ts
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+
+import { ZardSonnerService } from '@/shared/components/sonner/sonner.service';
+
+import { ZardQuestionnaireImports } from '../questionnaire.imports';
+import type { ZardQuestionnaireAnswers, ZardQuestionnaireItem } from '../questionnaire.types';
+
+type QuestionnaireItemName = 'permission' | 'verification';
+type QuestionnaireItemStatus = 'answered' | 'unanswered';
+
+@Component({
+  selector: 'z-demo-questionnaire-navigation-state',
+  imports: [ZardQuestionnaireImports],
+  template: `
+    <z-questionnaire
+      class="mx-auto max-w-md"
+      [zItems]="items"
+      [(zActive)]="activeItem"
+      (zSubmit)="savePermissions($event)"
+    >
+      <z-questionnaire-progress />
+
+      <z-questionnaire-item zName="permission" zRequired>
+        <z-questionnaire-title>What may the agent modify?</z-questionnaire-title>
+        <z-questionnaire-description>
+          Next is intentionally disabled until an answer is selected.
+        </z-questionnaire-description>
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="files" (change)="setStatus('permission', 'answered')">
+            Project files
+          </z-questionnaire-choice>
+          <z-questionnaire-choice zValue="tests" (change)="setStatus('permission', 'answered')">
+            Project files and tests
+          </z-questionnaire-choice>
+          <z-questionnaire-choice zValue="config" (change)="setStatus('permission', 'answered')">
+            Files, tests, and configuration
+          </z-questionnaire-choice>
+        </z-questionnaire-choices>
+        <z-questionnaire-error />
+      </z-questionnaire-item>
+
+      <z-questionnaire-item zName="verification" zRequired>
+        <z-questionnaire-title>What must pass before completion?</z-questionnaire-title>
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="tests" (change)="setStatus('verification', 'answered')">
+            Tests
+          </z-questionnaire-choice>
+          <z-questionnaire-choice zValue="types" (change)="setStatus('verification', 'answered')">
+            Tests and types
+          </z-questionnaire-choice>
+          <z-questionnaire-choice zValue="all" (change)="setStatus('verification', 'answered')">
+            Tests, types, and visual QA
+          </z-questionnaire-choice>
+        </z-questionnaire-choices>
+        <z-questionnaire-error />
+      </z-questionnaire-item>
+
+      <z-questionnaire-actions>
+        <button type="button" z-questionnaire-previous>Previous</button>
+        <button
+          type="button"
+          z-questionnaire-next
+          zType="secondary"
+          class="data-[status=unanswered]:opacity-50"
+          [attr.data-status]="activeStatus()"
+          [disabled]="unanswered()"
+        >
+          Next
+        </button>
+        <button type="submit" z-questionnaire-submit [disabled]="unanswered()">Save permissions</button>
+      </z-questionnaire-actions>
+    </z-questionnaire>
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block w-full' },
+})
+export class ZardDemoQuestionnaireNavigationStateComponent {
+  private readonly sonner = inject(ZardSonnerService);
+
+  readonly items: ZardQuestionnaireItem[] = [
+    { name: 'permission', required: true },
+    { name: 'verification', required: true },
+  ];
+
+  readonly activeItem = signal<QuestionnaireItemName>('permission');
+  readonly statuses = signal<Record<QuestionnaireItemName, QuestionnaireItemStatus>>({
+    permission: 'unanswered',
+    verification: 'unanswered',
+  });
+
+  readonly activeStatus = computed(() => this.statuses()[this.activeItem()]);
+  readonly unanswered = computed(() => this.activeStatus() === 'unanswered');
+
+  setStatus(name: QuestionnaireItemName, status: QuestionnaireItemStatus): void {
+    this.statuses.update(current => ({ ...current, [name]: status }));
+  }
+
+  savePermissions(answers: ZardQuestionnaireAnswers): void {
+    this.sonner.show('Permissions saved', {
+      description: `Permission: ${answers['permission'] ?? 'None'} · Verification: ${answers['verification'] ?? 'None'}`,
+    });
+  }
+}
+```
+
+### Custom Progress
+
+Replace the default progress label with a custom step indicator.
+
+```angular-ts
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+
+import { ZardSonnerService } from '@/shared/components/sonner/sonner.service';
+
+import { ZardQuestionnaireImports } from '../questionnaire.imports';
+import type { ZardQuestionnaireAnswers, ZardQuestionnaireItem } from '../questionnaire.types';
+
+@Component({
+  selector: 'z-demo-questionnaire-custom-progress',
+  imports: [ZardQuestionnaireImports],
+  template: `
+    <z-questionnaire class="mx-auto max-w-md" [zItems]="items" zActive="scope" (zSubmit)="savePlan($event)">
+      <z-questionnaire-progress #progress="zQuestionnaireProgress" class="w-full">
+        <div class="mb-2 flex gap-1.5" aria-hidden="true">
+          @for (item of items; track item.name; let index = $index) {
+            <span
+              class="h-1.5 flex-1 rounded-full"
+              [class.bg-primary]="index < progress.current()"
+              [class.bg-muted]="index >= progress.current()"
+            ></span>
+          }
+        </div>
+        <span>Checkpoint {{ progress.current() }} of {{ progress.total() }}</span>
+      </z-questionnaire-progress>
+
+      <z-questionnaire-item zName="scope" zRequired>
+        <z-questionnaire-title>How large is the change?</z-questionnaire-title>
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="small">Small patch</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="medium">Feature-sized change</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="large">Cross-package change</z-questionnaire-choice>
+        </z-questionnaire-choices>
+        <z-questionnaire-error />
+      </z-questionnaire-item>
+
+      <z-questionnaire-item zName="strategy" zRequired>
+        <z-questionnaire-title>How should commits be organized?</z-questionnaire-title>
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="single">Single commit</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="logical">Logical commits</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="squash">Squash before review</z-questionnaire-choice>
+        </z-questionnaire-choices>
+        <z-questionnaire-error />
+      </z-questionnaire-item>
+
+      <z-questionnaire-item zName="tests" zRequired>
+        <z-questionnaire-title>Which tests should run?</z-questionnaire-title>
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="targeted">Targeted tests</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="package">Package suite</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="workspace">Full workspace</z-questionnaire-choice>
+        </z-questionnaire-choices>
+        <z-questionnaire-error />
+      </z-questionnaire-item>
+
+      <z-questionnaire-item zName="delivery" zRequired>
+        <z-questionnaire-title>How should the work be delivered?</z-questionnaire-title>
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="patch">Patch only</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="commit">Committed locally</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="branch">Push a review branch</z-questionnaire-choice>
+        </z-questionnaire-choices>
+        <z-questionnaire-error />
+      </z-questionnaire-item>
+
+      <z-questionnaire-actions>
+        <button type="button" z-questionnaire-previous>Previous</button>
+        <button type="button" z-questionnaire-next>Next</button>
+        <button type="submit" z-questionnaire-submit>Finish plan</button>
+      </z-questionnaire-actions>
+    </z-questionnaire>
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block w-full' },
+})
+export class ZardDemoQuestionnaireCustomProgressComponent {
+  private readonly sonner = inject(ZardSonnerService);
+
+  readonly items: ZardQuestionnaireItem[] = [
+    { name: 'scope', required: true },
+    { name: 'strategy', required: true },
+    { name: 'tests', required: true },
+    { name: 'delivery', required: true },
+  ];
+
+  savePlan(answers: ZardQuestionnaireAnswers): void {
+    this.sonner.show('Pull request plan ready', {
+      description: `Scope: ${answers['scope'] ?? 'None'} · Commits: ${answers['strategy'] ?? 'None'} · Tests: ${answers['tests'] ?? 'None'} · Delivery: ${answers['delivery'] ?? 'None'}`,
+    });
+  }
+}
+```
+
+### Animated Items
+
+Animate the active item while keeping progress and navigation stationary.
+
+```angular-ts
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+
+import { ZardSonnerService } from '@/shared/components/sonner/sonner.service';
+
+import { ZardQuestionnaireImports } from '../questionnaire.imports';
+import type { ZardQuestionnaireAnswers, ZardQuestionnaireItem } from '../questionnaire.types';
+
+const ITEM_CLASS_NAME =
+  'data-active:animate-in data-active:fade-in-0 data-active:slide-in-from-bottom-2 data-active:duration-300 motion-reduce:animate-none';
+
+@Component({
+  selector: 'z-demo-questionnaire-animated-items',
+  imports: [ZardQuestionnaireImports],
+  template: `
+    <z-questionnaire class="mx-auto max-w-md" [zItems]="items" zActive="task" (zSubmit)="saveWorkflow($event)">
+      <z-questionnaire-progress />
+
+      <z-questionnaire-item [class]="itemClassName" zName="task" zRequired>
+        <z-questionnaire-title>What should the agent do?</z-questionnaire-title>
+        <z-questionnaire-description>Choose the task for this run.</z-questionnaire-description>
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="implement">Implement the requested change</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="debug">Debug the current behavior</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="review">Review the implementation</z-questionnaire-choice>
+        </z-questionnaire-choices>
+        <z-questionnaire-error />
+      </z-questionnaire-item>
+
+      <z-questionnaire-item [class]="itemClassName" zName="review" zRequired>
+        <z-questionnaire-title>How should the work be reviewed?</z-questionnaire-title>
+        <z-questionnaire-description>Select the verification depth.</z-questionnaire-description>
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="targeted">Targeted checks</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="complete">Complete test suite</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="manual">Tests and manual QA</z-questionnaire-choice>
+        </z-questionnaire-choices>
+        <z-questionnaire-error />
+      </z-questionnaire-item>
+
+      <z-questionnaire-item [class]="itemClassName" zName="delivery" zRequired>
+        <z-questionnaire-title>How should the result be delivered?</z-questionnaire-title>
+        <z-questionnaire-description>Choose the final handoff format.</z-questionnaire-description>
+        <z-questionnaire-choices>
+          <z-questionnaire-choice zValue="summary">Concise summary</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="diff">Summary and changed files</z-questionnaire-choice>
+          <z-questionnaire-choice zValue="handoff">Detailed review handoff</z-questionnaire-choice>
+        </z-questionnaire-choices>
+        <z-questionnaire-error />
+      </z-questionnaire-item>
+
+      <z-questionnaire-actions>
+        <button type="button" z-questionnaire-previous>Previous</button>
+        <button type="button" z-questionnaire-next>Next</button>
+        <button type="submit" z-questionnaire-submit>Save workflow</button>
+      </z-questionnaire-actions>
+    </z-questionnaire>
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block w-full' },
+})
+export class ZardDemoQuestionnaireAnimatedItemsComponent {
+  private readonly sonner = inject(ZardSonnerService);
+
+  readonly itemClassName = ITEM_CLASS_NAME;
+  readonly items: ZardQuestionnaireItem[] = [
+    { name: 'task', required: true },
+    { name: 'review', required: true },
+    { name: 'delivery', required: true },
+  ];
+
+  saveWorkflow(answers: ZardQuestionnaireAnswers): void {
+    this.sonner.show('Agent workflow saved', {
+      description: `Task: ${answers['task'] ?? 'None'} · Review: ${answers['review'] ?? 'None'} · Delivery: ${answers['delivery'] ?? 'None'}`,
+    });
+  }
+}
+```
+
+### Card
+
+Compose `z-questionnaire` items, progress, and navigation inside a card.
+
+```angular-ts
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+
+import { ZardCardImports } from '@/shared/components/card/card.imports';
+import { ZardSonnerService } from '@/shared/components/sonner/sonner.service';
+
+import { ZardQuestionnaireImports } from '../questionnaire.imports';
+import type { ZardQuestionnaireAnswers, ZardQuestionnaireItem } from '../questionnaire.types';
+
+@Component({
+  selector: 'z-demo-questionnaire-card',
+  imports: [ZardCardImports, ZardQuestionnaireImports],
+  template: `
+    <z-questionnaire class="mx-auto max-w-md" [zItems]="items" zShortcuts="numbers" (zSubmit)="createTask($event)">
+      <z-card>
+        <z-questionnaire-item zName="task" zRequired>
+          <z-card-header>
+            <z-questionnaire-title id="task-title">
+              <z-card-title zTitle="What should the agent work on?" />
+            </z-questionnaire-title>
+            <z-questionnaire-description>
+              <z-card-description zDescription="Choose the task that should be handled next." />
+            </z-questionnaire-description>
+            <z-card-action>
+              <z-questionnaire-progress />
+            </z-card-action>
+          </z-card-header>
+          <z-card-content>
+            <z-questionnaire-choices>
+              <z-questionnaire-choice zValue="fix">Fix the failing tests</z-questionnaire-choice>
+              <z-questionnaire-choice zValue="refactor">Refactor the data layer</z-questionnaire-choice>
+              <z-questionnaire-choice zValue="docs">Update the integration guide</z-questionnaire-choice>
+            </z-questionnaire-choices>
+            <z-questionnaire-error />
+          </z-card-content>
+        </z-questionnaire-item>
+
+        <z-questionnaire-item zName="output" zRequired>
+          <z-card-header>
+            <z-questionnaire-title id="output-title">
+              <z-card-title zTitle="What should the final handoff include?" />
+            </z-questionnaire-title>
+            <z-questionnaire-description>
+              <z-card-description zDescription="Pick the level of detail needed for review." />
+            </z-questionnaire-description>
+            <z-card-action>
+              <z-questionnaire-progress />
+            </z-card-action>
+          </z-card-header>
+          <z-card-content>
+            <z-questionnaire-choices>
+              <z-questionnaire-choice zValue="summary">Summary only</z-questionnaire-choice>
+              <z-questionnaire-choice zValue="files">Summary and changed files</z-questionnaire-choice>
+              <z-questionnaire-choice zValue="review">Full review handoff</z-questionnaire-choice>
+            </z-questionnaire-choices>
+            <z-questionnaire-error />
+          </z-card-content>
+        </z-questionnaire-item>
+
+        <z-card-footer>
+          <z-questionnaire-actions class="w-full">
+            <button type="button" z-questionnaire-previous>Previous</button>
+            <button type="button" z-questionnaire-next>Next</button>
+            <button type="submit" z-questionnaire-submit>Create task</button>
+          </z-questionnaire-actions>
+        </z-card-footer>
+      </z-card>
+    </z-questionnaire>
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  host: { class: 'block w-full' },
+})
+export class ZardDemoQuestionnaireCardComponent {
+  private readonly sonner = inject(ZardSonnerService);
+
+  readonly items = [
+    {
+      choices: [{ value: 'fix' }, { value: 'refactor' }, { value: 'docs' }],
+      name: 'task',
+      required: true,
+    },
+    {
+      choices: [{ value: 'summary' }, { value: 'files' }, { value: 'review' }],
+      name: 'output',
+      required: true,
+    },
+  ] as const satisfies readonly ZardQuestionnaireItem[];
+
+  createTask(answers: ZardQuestionnaireAnswers): void {
+    this.sonner.show('Agent task created', {
+      description: `Task: ${answers['task'] ?? 'None'} · Handoff: ${answers['output'] ?? 'None'}`,
+    });
+  }
+}
+```
+
+### Dialog
+
+Compose `z-questionnaire` inside a `z-dialog` while keeping cancellation and dismissal host-owned.
+
+```angular-ts
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+
+import { ZardButtonComponent } from '@/shared/components/button/button.component';
+import { ZardDialogImports } from '@/shared/components/dialog/dialog.imports';
+import { ZardSonnerService } from '@/shared/components/sonner/sonner.service';
+
+import { ZardQuestionnaireImports } from '../questionnaire.imports';
+import type { ZardQuestionnaireAnswers, ZardQuestionnaireItem } from '../questionnaire.types';
+
+@Component({
+  selector: 'z-demo-questionnaire-dialog',
+  imports: [ZardButtonComponent, ZardDialogImports, ZardQuestionnaireImports],
+  template: `
+    <button type="button" z-button zType="outline" (click)="open.set(true)">Open clarification</button>
+
+    <z-dialog [(zVisible)]="open">
+      <z-dialog-title class="sr-only">Clarification questionnaire</z-dialog-title>
+      <z-dialog-description class="sr-only">
+        Answer two questions about the requested scope and verification.
+      </z-dialog-description>
+
+      <z-questionnaire [zItems]="items" zActive="scope" (zSubmit)="sendClarification($event)">
+        <z-questionnaire-item zName="scope" zRequired>
+          <z-dialog-header>
+            <z-questionnaire-progress />
+            <z-questionnaire-title>Which files are in scope?</z-questionnaire-title>
+            <z-questionnaire-description>
+              Choose how broadly the agent can update the workspace.
+            </z-questionnaire-description>
+          </z-dialog-header>
+          <z-questionnaire-choices>
+            <z-questionnaire-choice zValue="component">Component only</z-questionnaire-choice>
+            <z-questionnaire-choice zValue="feature">Complete feature directory</z-questionnaire-choice>
+            <z-questionnaire-choice zValue="workspace">Any related workspace file</z-questionnaire-choice>
+          </z-questionnaire-choices>
+          <z-questionnaire-error />
+        </z-questionnaire-item>
+
+        <z-questionnaire-item zName="tests" zRequired>
+          <z-dialog-header>
+            <z-questionnaire-progress />
+            <z-questionnaire-title>How much verification is needed?</z-questionnaire-title>
+            <z-questionnaire-description>
+              Choose the checks the agent should run before handoff.
+            </z-questionnaire-description>
+          </z-dialog-header>
+          <z-questionnaire-choices>
+            <z-questionnaire-choice zValue="targeted">Targeted tests</z-questionnaire-choice>
+            <z-questionnaire-choice zValue="package">Package tests</z-questionnaire-choice>
+            <z-questionnaire-choice zValue="full">Full workspace verification</z-questionnaire-choice>
+          </z-questionnaire-choices>
+          <z-questionnaire-error />
+        </z-questionnaire-item>
+
+        <z-dialog-footer>
+          <button type="button" z-button zType="outline" z-dialog-close>Cancel</button>
+          <z-questionnaire-actions>
+            <button type="button" z-questionnaire-previous>Previous</button>
+            <button type="button" z-questionnaire-next>Next</button>
+            <button type="submit" z-questionnaire-submit>Send answer</button>
+          </z-questionnaire-actions>
+        </z-dialog-footer>
+      </z-questionnaire>
+    </z-dialog>
+  `,
+  changeDetection: ChangeDetectionStrategy.OnPush,
+})
+export class ZardDemoQuestionnaireDialogComponent {
+  private readonly sonner = inject(ZardSonnerService);
+
+  readonly open = signal(false);
+  readonly items = [
+    {
+      choices: [{ value: 'component' }, { value: 'feature' }, { value: 'workspace' }],
+      name: 'scope',
+      required: true,
+    },
+    {
+      choices: [{ value: 'targeted' }, { value: 'package' }, { value: 'full' }],
+      name: 'tests',
+      required: true,
+    },
+  ] as const satisfies readonly ZardQuestionnaireItem[];
+
+  sendClarification(answers: ZardQuestionnaireAnswers): void {
+    this.open.set(false);
+    this.sonner.show('Clarification sent', {
+      description: `Scope: ${answers['scope'] ?? 'None'} · Verification: ${answers['tests'] ?? 'None'}`,
+    });
+  }
+}
+```
+
+## Accessibility
+
+Each `z-questionnaire-item` renders a fieldset. Fixed choices use native, labelled radio or checkbox inputs, while progress exposes progressbar values and navigation uses native buttons. Inactive items and unavailable actions are hidden.
+
+After successful navigation, focus moves to the first enabled input in the active item. Failed validation marks the item invalid, reveals its alert, and focuses the first enabled input.
+
+Always give `z-questionnaire-input` an accessible name with `aria-label` or by wrapping it in a visible label. A placeholder is not a label. Description and visible error content are automatically associated with the item fieldset and built-in answer controls; custom projected controls can reference the generated description and error ids when needed.
+
 ## API Reference
 
 ### z-questionnaire
 
-A multi-step questionnaire with single-choice, multiple-choice, freeform, and skippable questions.
+A multi-step questionnaire with single-choice, multiple-choice, freeform, and skippable questions. Implements ControlValueAccessor for Reactive Forms.
 
 | Prop | Description | Type | Default |
 | --- | --- | --- | --- |
+| `[zItems]` | Item definitions that control order, name, required, multiple, and disabled state | `readonly ZardQuestionnaireItem[]` | `[]` |
+| `[zActive]` | Active item name; supports two-way binding with [(zActive)] | `string \| undefined` | `undefined` |
+| `[zShortcuts]` | Assigns answer shortcuts in item order | `'none' \| 'letters' \| 'numbers'` | `'none'` |
+| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+| `(zSubmit)` | Emits the answers once every enabled item validates | `EventEmitter<Record<string, string \| string[]>>` | `-` |
+
+### z-questionnaire-progress
+
+Displays the current question and total as text and an accessible progress bar.
+
+| Prop | Description | Type | Default |
+| --- | --- | --- | --- |
+| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+
+### z-questionnaire-item
+
+One questionnaire step rendered as a fieldset.
+
+| Prop | Description | Type | Default |
+| --- | --- | --- | --- |
+| `[zName]` | Unique item name used for navigation and the submitted answer key | `string` | `required` |
+| `[zRequired]` | Requires an answer before navigation or submission can continue | `boolean` | `false` |
+| `[zMultiple]` | Allows multiple fixed answers and submits a string array | `boolean` | `false` |
+| `[zDisabled]` | Disables the item and excludes it from progress, navigation, validation, and submission | `boolean` | `false` |
+| `[zInvalid]` | Marks the item invalid from consumer-owned validation | `boolean` | `false` |
+| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+
+### z-questionnaire-title
+
+Item prompt rendered as the fieldset legend.
+
+| Prop | Description | Type | Default |
+| --- | --- | --- | --- |
+| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+
+### z-questionnaire-description
+
+Supporting text automatically wired to the item fieldset and built-in answer controls.
+
+| Prop | Description | Type | Default |
+| --- | --- | --- | --- |
+| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+
+### z-questionnaire-choices
+
+Layout container for fixed choices and the freeform input.
+
+| Prop | Description | Type | Default |
+| --- | --- | --- | --- |
+| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+
+### z-questionnaire-choice
+
+One fixed answer rendered as a label with a native radio or checkbox and an optional shortcut.
+
+| Prop | Description | Type | Default |
+| --- | --- | --- | --- |
+| `[zValue]` | Value submitted when the choice is selected | `string` | `required` |
+| `[checked]` | Initial checked state, including the state restored by a native form reset | `boolean` | `false` |
+| `[zDisabled]` | Disables this choice | `boolean` | `false` |
+| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+
+### z-questionnaire-input
+
+Freeform answer for the active item.
+
+| Prop | Description | Type | Default |
+| --- | --- | --- | --- |
+| `[type]` | Native input type | `string` | `'text'` |
+| `[value]` | Initial value, including the value restored by a native form reset | `string` | `''` |
+| `[placeholder]` | Placeholder text | `string` | `''` |
+| `[aria-label]` | Accessible label for the freeform input | `string \| null` | `null` |
+| `[zDisabled]` | Disables the freeform input | `boolean` | `false` |
+| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+
+### z-questionnaire-error
+
+Validation message for the item.
+
+| Prop | Description | Type | Default |
+| --- | --- | --- | --- |
+| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+
+### z-questionnaire-actions
+
+Layout row for questionnaire navigation buttons.
+
+| Prop | Description | Type | Default |
+| --- | --- | --- | --- |
+| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+
+### button[z-questionnaire-previous]
+
+Moves to the previous item and hides itself when no previous item is available.
+
+| Prop | Description | Type | Default |
+| --- | --- | --- | --- |
+| `[disabled]` | Disables the button in addition to its questionnaire-controlled disabled state | `boolean` | `false` |
+| `[zType]` | Button visual style | `ZardButtonTypeVariants` | `'outline'` |
+| `[zSize]` | Button size | `ZardButtonSizeVariants` | `'default'` |
+| `[zShape]` | Button shape | `ZardButtonShapeVariants` | `'default'` |
+| `[zLoading]` | Shows the loading state and disables the button | `boolean` | `false` |
+| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+
+### button[z-questionnaire-skip]
+
+Skips the active optional item and hides itself when the item cannot be skipped.
+
+| Prop | Description | Type | Default |
+| --- | --- | --- | --- |
+| `[disabled]` | Disables the button in addition to its questionnaire-controlled disabled state | `boolean` | `false` |
+| `[zType]` | Button visual style | `ZardButtonTypeVariants` | `'outline'` |
+| `[zSize]` | Button size | `ZardButtonSizeVariants` | `'default'` |
+| `[zShape]` | Button shape | `ZardButtonShapeVariants` | `'default'` |
+| `[zLoading]` | Shows the loading state and disables the button | `boolean` | `false` |
+| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+
+### button[z-questionnaire-next]
+
+Validates the active item, moves forward, and hides itself on the final item.
+
+| Prop | Description | Type | Default |
+| --- | --- | --- | --- |
+| `[disabled]` | Disables the button in addition to its questionnaire-controlled disabled state | `boolean` | `false` |
+| `[zType]` | Button visual style | `ZardButtonTypeVariants` | `'default'` |
+| `[zSize]` | Button size | `ZardButtonSizeVariants` | `'default'` |
+| `[zShape]` | Button shape | `ZardButtonShapeVariants` | `'default'` |
+| `[zLoading]` | Shows the loading state and disables the button | `boolean` | `false` |
+| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+
+### button[z-questionnaire-submit]
+
+Submits the questionnaire and hides itself until the final item is active.
+
+| Prop | Description | Type | Default |
+| --- | --- | --- | --- |
+| `[disabled]` | Disables the button in addition to its questionnaire-controlled disabled state | `boolean` | `false` |
+| `[zType]` | Button visual style | `ZardButtonTypeVariants` | `'default'` |
+| `[zSize]` | Button size | `ZardButtonSizeVariants` | `'default'` |
+| `[zShape]` | Button shape | `ZardButtonShapeVariants` | `'default'` |
+| `[zLoading]` | Shows the loading state and disables the button | `boolean` | `false` |
 | `[class]` | Custom CSS classes | `ClassValue` | `''` |
 
 ---
