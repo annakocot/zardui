@@ -19,6 +19,7 @@ npx zard-cli@latest add questionnaire
 
 ```angular-ts
 import {
+  afterNextRender,
   ChangeDetectionStrategy,
   Component,
   computed,
@@ -26,6 +27,7 @@ import {
   ElementRef,
   forwardRef,
   inject,
+  Injector,
   input,
   model,
   output,
@@ -81,6 +83,7 @@ import { questionnaireVariants } from './questionnaire.variants';
 })
 export class ZardQuestionnaireComponent implements ControlValueAccessor {
   private readonly elementRef = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly injector = inject(Injector);
   private readonly form = viewChild<ElementRef<HTMLFormElement>>('form');
   private readonly invalidItems = signal<ReadonlySet<string>>(new Set());
   private readonly skippedItems = signal<ReadonlySet<string>>(new Set());
@@ -183,17 +186,17 @@ export class ZardQuestionnaireComponent implements ControlValueAccessor {
     return this.invalidItems().has(name);
   }
 
-  shortcutFor(input: HTMLInputElement, itemName: string): string | null {
+  shortcutFor(control: HTMLInputElement, itemName: string): string | null {
     const mode = this.zShortcuts();
-    if (mode === 'none' || itemName !== this.zActive() || input.disabled) {
+    if (mode === 'none' || itemName !== this.zActive() || control.disabled) {
       return null;
     }
 
-    const item = input.closest<HTMLElement>('[data-slot="questionnaire-item"]');
+    const item = control.closest<HTMLElement>('[data-slot="questionnaire-item"]');
     const choices = Array.from(
       item?.querySelectorAll<HTMLInputElement>('[data-slot="questionnaire-choice"] input:not(:disabled)') ?? [],
     );
-    const index = choices.indexOf(input);
+    const index = choices.indexOf(control);
 
     if (index < 0) {
       return null;
@@ -229,7 +232,7 @@ export class ZardQuestionnaireComponent implements ControlValueAccessor {
       this.updateSet(this.skippedItems, name, false);
       this.updateSet(this.invalidItems, name, false);
     }
-    this.onChangeFn(this.collectAnswers());
+    this.onChangeFn(this.collectAnswers(control));
   }
 
   handleSubmit(event: SubmitEvent): void {
@@ -285,6 +288,18 @@ export class ZardQuestionnaireComponent implements ControlValueAccessor {
     }
 
     const { target } = event;
+    if (!(target instanceof Node) || !this.elementRef.nativeElement.contains(target)) {
+      return;
+    }
+
+    const isTypingTarget =
+      target instanceof HTMLElement &&
+      (target.matches('input:not([type="radio"]):not([type="checkbox"]), textarea, select') ||
+        target.isContentEditable);
+    if (isTypingTarget) {
+      return;
+    }
+
     if (target instanceof HTMLElement && (target.matches('input, textarea, select') || target.isContentEditable)) {
       return;
     }
@@ -323,11 +338,35 @@ export class ZardQuestionnaireComponent implements ControlValueAccessor {
     return Boolean(form && new FormData(form).getAll(name).some(value => String(value).trim().length > 0));
   }
 
-  private collectAnswers(): ZardQuestionnaireAnswers {
+  private collectAnswers(
+    changedControl?: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+  ): ZardQuestionnaireAnswers {
     const form = this.form()?.nativeElement;
     const answers: ZardQuestionnaireAnswers = {};
     if (!form) {
       return answers;
+    }
+
+    const changedItem = changedControl && this.enabledItems().find(item => item.name === changedControl.name);
+    if (changedControl && changedItem && !changedItem.multiple) {
+      const namedControl = form.elements.namedItem(changedItem.name);
+      const controls = namedControl instanceof RadioNodeList ? Array.from(namedControl) : [namedControl];
+      const radioControls = controls.filter(
+        (control): control is HTMLInputElement => control instanceof HTMLInputElement && control.type === 'radio',
+      );
+      const freeformControls = controls.filter(
+        (control): control is HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement =>
+          (control instanceof HTMLInputElement && control.type !== 'radio') ||
+          control instanceof HTMLTextAreaElement ||
+          control instanceof HTMLSelectElement,
+      );
+
+      // A single-answer item treats fixed radio choices and freeform text as mutually exclusive.
+      if (changedControl instanceof HTMLInputElement && changedControl.type === 'radio' && changedControl.checked) {
+        freeformControls.forEach(control => (control.value = ''));
+      } else if (freeformControls.includes(changedControl) && changedControl.value.trim().length > 0) {
+        radioControls.forEach(control => (control.checked = false));
+      }
     }
 
     const formData = new FormData(form);
@@ -384,11 +423,14 @@ export class ZardQuestionnaireComponent implements ControlValueAccessor {
       return;
     }
 
-    setTimeout(() => {
-      this.elementRef.nativeElement
-        .querySelector<HTMLElement>(`[data-questionnaire-name="${CSS.escape(name)}"] input:not(:disabled)`)
-        ?.focus();
-    }, 0);
+    afterNextRender(
+      () => {
+        this.elementRef.nativeElement
+          .querySelector<HTMLElement>(`[data-questionnaire-name="${CSS.escape(name)}"] input:not(:disabled)`)
+          ?.focus();
+      },
+      { injector: this.injector },
+    );
   }
 
   private shortcutIndex(key: string): number {
@@ -1228,8 +1270,6 @@ export interface ZardQuestionnaireChoice {
 
 export interface ZardQuestionnaireItem {
   name: string;
-  title?: string;
-  description?: string;
   choices?: readonly ZardQuestionnaireChoice[];
   required?: boolean;
   multiple?: boolean;
@@ -1345,7 +1385,7 @@ z-questionnaire
 │   ├── z-questionnaire-description
 │   ├── z-questionnaire-choices
 │   │   ├── z-questionnaire-choice
-│   │   └──z-questionnaire-input
+│   │   └── z-questionnaire-input
 │   └── z-questionnaire-error
 └── z-questionnaire-actions
     ├── z-questionnaire-previous
@@ -1358,12 +1398,13 @@ z-questionnaire
 
 ### Multiple Selection
 
-Use `multiple` for an item that accepts more than one fixed answer.
+Use `zMultiple` (and `multiple` in `zItems`) for an item that accepts more than one fixed answer.
 
 ```angular-ts
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
-import { ZardSonnerService } from '../../sonner';
+import { ZardSonnerService } from '@/shared/components/sonner/sonner.service';
+
 import { ZardQuestionnaireImports } from '../questionnaire.imports';
 import type { ZardQuestionnaireAnswers, ZardQuestionnaireItem } from '../questionnaire.types';
 
@@ -1413,7 +1454,8 @@ Compose `z-questionnaire-input` with fixed choices when the user can provide ano
 ```angular-ts
 import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 
-import { ZardSonnerService } from '../../sonner';
+import { ZardSonnerService } from '@/shared/components/sonner/sonner.service';
+
 import { ZardQuestionnaireImports } from '../questionnaire.imports';
 import type { ZardQuestionnaireAnswers, ZardQuestionnaireItem } from '../questionnaire.types';
 
@@ -1590,13 +1632,14 @@ export class ZardDemoQuestionnaireExplicitSkipComponent {
 
 ### Shortcuts
 
-Assign a letter or number key to each answer with `shortcuts`.
+Assign a letter or number key to each answer with `zShortcuts`.
 
 ```angular-ts
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 
-import { ZardComboboxImports } from '../../combobox';
-import { ZardSonnerService } from '../../sonner';
+import { ZardComboboxImports } from '@/shared/components/combobox';
+import { ZardSonnerService } from '@/shared/components/sonner/sonner.service';
+
 import { ZardQuestionnaireImports } from '../questionnaire.imports';
 import type {
   ZardQuestionnaireAnswers,
@@ -2607,9 +2650,9 @@ A multi-step questionnaire with single-choice, multiple-choice, freeform, and sk
 | Prop | Description | Type | Default |
 | --- | --- | --- | --- |
 | `[zItems]` | Item definitions that control order, name, required, multiple, and disabled state | `readonly ZardQuestionnaireItem[]` | `[]` |
-| `[zActive]` | Active item name; supports two-way binding with [(zActive)] | `string \| undefined` | `undefined` |
-| `[zShortcuts]` | Assigns answer shortcuts in item order | `'none' \| 'letters' \| 'numbers'` | `'none'` |
-| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+| `zActive` | Active item name; supports two-way binding with [(zActive)] | `string \| undefined` | `undefined` |
+| `zShortcuts` | Assigns answer shortcuts in item order | `'none' \| 'letters' \| 'numbers'` | `'none'` |
+| `class` | Custom CSS classes | `ClassValue` | `''` |
 | `(zSubmit)` | Emits the answers once every enabled item validates | `EventEmitter<Record<string, string \| string[]>>` | `-` |
 
 ### z-questionnaire-progress
@@ -2618,7 +2661,7 @@ Displays the current question and total as text and an accessible progress bar.
 
 | Prop | Description | Type | Default |
 | --- | --- | --- | --- |
-| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+| `class` | Custom CSS classes | `ClassValue` | `''` |
 
 ### z-questionnaire-item
 
@@ -2626,12 +2669,12 @@ One questionnaire step rendered as a fieldset.
 
 | Prop | Description | Type | Default |
 | --- | --- | --- | --- |
-| `[zName]` | Unique item name used for navigation and the submitted answer key | `string` | `required` |
-| `[zRequired]` | Requires an answer before navigation or submission can continue | `boolean` | `false` |
-| `[zMultiple]` | Allows multiple fixed answers and submits a string array | `boolean` | `false` |
-| `[zDisabled]` | Disables the item and excludes it from progress, navigation, validation, and submission | `boolean` | `false` |
-| `[zInvalid]` | Marks the item invalid from consumer-owned validation | `boolean` | `false` |
-| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+| `zName` | Unique item name used for navigation and the submitted answer key | `string` | `required` |
+| `zRequired` | Requires an answer before navigation or submission can continue | `boolean` | `false` |
+| `zMultiple` | Allows multiple fixed answers and submits a string array | `boolean` | `false` |
+| `zDisabled` | Disables the item and excludes it from progress, navigation, validation, and submission | `boolean` | `false` |
+| `zInvalid` | Marks the item invalid from consumer-owned validation | `boolean` | `false` |
+| `class` | Custom CSS classes | `ClassValue` | `''` |
 
 ### z-questionnaire-title
 
@@ -2639,7 +2682,7 @@ Item prompt rendered as the fieldset legend.
 
 | Prop | Description | Type | Default |
 | --- | --- | --- | --- |
-| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+| `class` | Custom CSS classes | `ClassValue` | `''` |
 
 ### z-questionnaire-description
 
@@ -2647,7 +2690,7 @@ Supporting text automatically wired to the item fieldset and built-in answer con
 
 | Prop | Description | Type | Default |
 | --- | --- | --- | --- |
-| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+| `class` | Custom CSS classes | `ClassValue` | `''` |
 
 ### z-questionnaire-choices
 
@@ -2655,7 +2698,7 @@ Layout container for fixed choices and the freeform input.
 
 | Prop | Description | Type | Default |
 | --- | --- | --- | --- |
-| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+| `class` | Custom CSS classes | `ClassValue` | `''` |
 
 ### z-questionnaire-choice
 
@@ -2663,10 +2706,10 @@ One fixed answer rendered as a label with a native radio or checkbox and an opti
 
 | Prop | Description | Type | Default |
 | --- | --- | --- | --- |
-| `[zValue]` | Value submitted when the choice is selected | `string` | `required` |
-| `[checked]` | Initial checked state, including the state restored by a native form reset | `boolean` | `false` |
-| `[zDisabled]` | Disables this choice | `boolean` | `false` |
-| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+| `zValue` | Value submitted when the choice is selected | `string` | `required` |
+| `checked` | Initial checked state, including the state restored by a native form reset | `boolean` | `false` |
+| `zDisabled` | Disables this choice | `boolean` | `false` |
+| `class` | Custom CSS classes | `ClassValue` | `''` |
 
 ### z-questionnaire-input
 
@@ -2674,12 +2717,12 @@ Freeform answer for the active item.
 
 | Prop | Description | Type | Default |
 | --- | --- | --- | --- |
-| `[type]` | Native input type | `string` | `'text'` |
-| `[value]` | Initial value, including the value restored by a native form reset | `string` | `''` |
-| `[placeholder]` | Placeholder text | `string` | `''` |
-| `[aria-label]` | Accessible label for the freeform input | `string \| null` | `null` |
-| `[zDisabled]` | Disables the freeform input | `boolean` | `false` |
-| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+| `type` | Native input type | `string` | `'text'` |
+| `value` | Initial value, including the value restored by a native form reset | `string` | `''` |
+| `placeholder` | Placeholder text | `string` | `''` |
+| `aria-label` | Accessible label for the freeform input | `string \| null` | `null` |
+| `zDisabled` | Disables the freeform input | `boolean` | `false` |
+| `class` | Custom CSS classes | `ClassValue` | `''` |
 
 ### z-questionnaire-error
 
@@ -2687,7 +2730,7 @@ Validation message for the item.
 
 | Prop | Description | Type | Default |
 | --- | --- | --- | --- |
-| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+| `class` | Custom CSS classes | `ClassValue` | `''` |
 
 ### z-questionnaire-actions
 
@@ -2695,7 +2738,7 @@ Layout row for questionnaire navigation buttons.
 
 | Prop | Description | Type | Default |
 | --- | --- | --- | --- |
-| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+| `class` | Custom CSS classes | `ClassValue` | `''` |
 
 ### button[z-questionnaire-previous]
 
@@ -2703,12 +2746,12 @@ Moves to the previous item and hides itself when no previous item is available.
 
 | Prop | Description | Type | Default |
 | --- | --- | --- | --- |
-| `[disabled]` | Disables the button in addition to its questionnaire-controlled disabled state | `boolean` | `false` |
-| `[zType]` | Button visual style | `ZardButtonTypeVariants` | `'outline'` |
-| `[zSize]` | Button size | `ZardButtonSizeVariants` | `'default'` |
-| `[zShape]` | Button shape | `ZardButtonShapeVariants` | `'default'` |
-| `[zLoading]` | Shows the loading state and disables the button | `boolean` | `false` |
-| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+| `disabled` | Disables the button in addition to its questionnaire-controlled disabled state | `boolean` | `false` |
+| `zType` | Button visual style | `ZardButtonTypeVariants` | `'outline'` |
+| `zSize` | Button size | `ZardButtonSizeVariants` | `'default'` |
+| `zShape` | Button shape | `ZardButtonShapeVariants` | `'default'` |
+| `zLoading` | Shows the loading state and disables the button | `boolean` | `false` |
+| `class` | Custom CSS classes | `ClassValue` | `''` |
 
 ### button[z-questionnaire-skip]
 
@@ -2716,12 +2759,12 @@ Skips the active optional item and hides itself when the item cannot be skipped.
 
 | Prop | Description | Type | Default |
 | --- | --- | --- | --- |
-| `[disabled]` | Disables the button in addition to its questionnaire-controlled disabled state | `boolean` | `false` |
-| `[zType]` | Button visual style | `ZardButtonTypeVariants` | `'outline'` |
-| `[zSize]` | Button size | `ZardButtonSizeVariants` | `'default'` |
-| `[zShape]` | Button shape | `ZardButtonShapeVariants` | `'default'` |
-| `[zLoading]` | Shows the loading state and disables the button | `boolean` | `false` |
-| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+| `disabled` | Disables the button in addition to its questionnaire-controlled disabled state | `boolean` | `false` |
+| `zType` | Button visual style | `ZardButtonTypeVariants` | `'outline'` |
+| `zSize` | Button size | `ZardButtonSizeVariants` | `'default'` |
+| `zShape` | Button shape | `ZardButtonShapeVariants` | `'default'` |
+| `zLoading` | Shows the loading state and disables the button | `boolean` | `false` |
+| `class` | Custom CSS classes | `ClassValue` | `''` |
 
 ### button[z-questionnaire-next]
 
@@ -2729,12 +2772,12 @@ Validates the active item, moves forward, and hides itself on the final item.
 
 | Prop | Description | Type | Default |
 | --- | --- | --- | --- |
-| `[disabled]` | Disables the button in addition to its questionnaire-controlled disabled state | `boolean` | `false` |
-| `[zType]` | Button visual style | `ZardButtonTypeVariants` | `'default'` |
-| `[zSize]` | Button size | `ZardButtonSizeVariants` | `'default'` |
-| `[zShape]` | Button shape | `ZardButtonShapeVariants` | `'default'` |
-| `[zLoading]` | Shows the loading state and disables the button | `boolean` | `false` |
-| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+| `disabled` | Disables the button in addition to its questionnaire-controlled disabled state | `boolean` | `false` |
+| `zType` | Button visual style | `ZardButtonTypeVariants` | `'default'` |
+| `zSize` | Button size | `ZardButtonSizeVariants` | `'default'` |
+| `zShape` | Button shape | `ZardButtonShapeVariants` | `'default'` |
+| `zLoading` | Shows the loading state and disables the button | `boolean` | `false` |
+| `class` | Custom CSS classes | `ClassValue` | `''` |
 
 ### button[z-questionnaire-submit]
 
@@ -2742,12 +2785,12 @@ Submits the questionnaire and hides itself until the final item is active.
 
 | Prop | Description | Type | Default |
 | --- | --- | --- | --- |
-| `[disabled]` | Disables the button in addition to its questionnaire-controlled disabled state | `boolean` | `false` |
-| `[zType]` | Button visual style | `ZardButtonTypeVariants` | `'default'` |
-| `[zSize]` | Button size | `ZardButtonSizeVariants` | `'default'` |
-| `[zShape]` | Button shape | `ZardButtonShapeVariants` | `'default'` |
-| `[zLoading]` | Shows the loading state and disables the button | `boolean` | `false` |
-| `[class]` | Custom CSS classes | `ClassValue` | `''` |
+| `disabled` | Disables the button in addition to its questionnaire-controlled disabled state | `boolean` | `false` |
+| `zType` | Button visual style | `ZardButtonTypeVariants` | `'default'` |
+| `zSize` | Button size | `ZardButtonSizeVariants` | `'default'` |
+| `zShape` | Button shape | `ZardButtonShapeVariants` | `'default'` |
+| `zLoading` | Shows the loading state and disables the button | `boolean` | `false` |
+| `class` | Custom CSS classes | `ClassValue` | `''` |
 
 ---
 
