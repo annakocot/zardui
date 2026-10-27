@@ -1,7 +1,10 @@
-import { booleanAttribute, computed, Directive, inject, input } from '@angular/core';
+import { booleanAttribute, Component, computed, inject, input, ViewEncapsulation } from '@angular/core';
 
+import { NgIcon, provideIcons } from '@ng-icons/core';
+import { lucideLoaderCircle } from '@ng-icons/lucide';
 import type { ClassValue } from 'clsx';
 
+import { ZardButtonComponent } from '@/shared/components/button/button.component';
 import {
   buttonVariants,
   type ZardButtonShapeVariants,
@@ -18,8 +21,19 @@ import {
   questionnaireSubmitVariants,
 } from './questionnaire.variants';
 
-@Directive({
+const NAVIGATION_BUTTON_TEMPLATE = `
+  @if (zLoading()) {
+    <ng-icon name="lucideLoaderCircle" class="animate-spin duration-2000" />
+  }
+  <ng-content />
+`;
+
+@Component({
   selector: 'button[z-questionnaire-previous]',
+  imports: [NgIcon],
+  template: NAVIGATION_BUTTON_TEMPLATE,
+  encapsulation: ViewEncapsulation.None,
+  viewProviders: [provideIcons({ lucideLoaderCircle })],
   host: {
     type: 'button',
     'data-slot': 'questionnaire-previous',
@@ -34,17 +48,20 @@ import {
   },
   exportAs: 'zQuestionnairePrevious',
 })
-export class ZardQuestionnairePreviousDirective {
+export class ZardQuestionnairePreviousDirective extends ZardButtonComponent {
   protected readonly questionnaire = inject(ZardQuestionnaireComponent);
 
-  readonly zDisabled = input(false, { alias: 'disabled', transform: booleanAttribute });
-  readonly zType = input<ZardButtonTypeVariants>('outline');
-  readonly zSize = input<ZardButtonSizeVariants>('default');
-  readonly zShape = input<ZardButtonShapeVariants>('default');
-  readonly zLoading = input(false, { transform: booleanAttribute });
-  readonly class = input<ClassValue>('');
-  readonly disabledState = computed(() => this.zDisabled() || this.zLoading() || !this.questionnaire.canMoveBack());
-  protected readonly classes = computed(() =>
+  override readonly zDisabled = input(false, { alias: 'disabled', transform: booleanAttribute });
+  override readonly zType = input<ZardButtonTypeVariants>('outline');
+  override readonly zSize = input<ZardButtonSizeVariants>('default');
+  override readonly zShape = input<ZardButtonShapeVariants>('default');
+  override readonly zLoading = input(false, { transform: booleanAttribute });
+  override readonly class = input<ClassValue>('');
+  readonly disabledState = computed(
+    () => this.zDisabled() || this.zLoading() || this.questionnaire.disabled() || !this.questionnaire.canMoveBack(),
+  );
+
+  protected override readonly classes = computed(() =>
     mergeClasses(
       buttonVariants({
         zType: this.zType(),
@@ -65,8 +82,12 @@ export class ZardQuestionnairePreviousDirective {
   }
 }
 
-@Directive({
+@Component({
   selector: 'button[z-questionnaire-skip]',
+  imports: [NgIcon],
+  template: NAVIGATION_BUTTON_TEMPLATE,
+  encapsulation: ViewEncapsulation.None,
+  viewProviders: [provideIcons({ lucideLoaderCircle })],
   host: {
     type: 'button',
     'data-slot': 'questionnaire-skip',
@@ -81,17 +102,20 @@ export class ZardQuestionnairePreviousDirective {
   },
   exportAs: 'zQuestionnaireSkip',
 })
-export class ZardQuestionnaireSkipDirective {
+export class ZardQuestionnaireSkipDirective extends ZardButtonComponent {
   protected readonly questionnaire = inject(ZardQuestionnaireComponent);
 
-  readonly zDisabled = input(false, { alias: 'disabled', transform: booleanAttribute });
-  readonly zType = input<ZardButtonTypeVariants>('outline');
-  readonly zSize = input<ZardButtonSizeVariants>('default');
-  readonly zShape = input<ZardButtonShapeVariants>('default');
-  readonly zLoading = input(false, { transform: booleanAttribute });
-  readonly class = input<ClassValue>('');
-  readonly disabledState = computed(() => this.zDisabled() || this.zLoading() || !this.questionnaire.canSkip());
-  protected readonly classes = computed(() =>
+  override readonly zDisabled = input(false, { alias: 'disabled', transform: booleanAttribute });
+  override readonly zType = input<ZardButtonTypeVariants>('outline');
+  override readonly zSize = input<ZardButtonSizeVariants>('default');
+  override readonly zShape = input<ZardButtonShapeVariants>('default');
+  override readonly zLoading = input(false, { transform: booleanAttribute });
+  override readonly class = input<ClassValue>('');
+  readonly disabledState = computed(
+    () => this.zDisabled() || this.zLoading() || this.questionnaire.disabled() || !this.questionnaire.canSkip(),
+  );
+
+  protected override readonly classes = computed(() =>
     mergeClasses(
       buttonVariants({
         zType: this.zType(),
@@ -112,8 +136,12 @@ export class ZardQuestionnaireSkipDirective {
   }
 }
 
-@Directive({
+@Component({
   selector: 'button[z-questionnaire-next]',
+  imports: [NgIcon],
+  template: NAVIGATION_BUTTON_TEMPLATE,
+  encapsulation: ViewEncapsulation.None,
+  viewProviders: [provideIcons({ lucideLoaderCircle })],
   host: {
     type: 'button',
     'data-slot': 'questionnaire-next',
@@ -128,17 +156,20 @@ export class ZardQuestionnaireSkipDirective {
   },
   exportAs: 'zQuestionnaireNext',
 })
-export class ZardQuestionnaireNextDirective {
+export class ZardQuestionnaireNextDirective extends ZardButtonComponent {
   protected readonly questionnaire = inject(ZardQuestionnaireComponent);
 
-  readonly zDisabled = input(false, { alias: 'disabled', transform: booleanAttribute });
-  readonly zType = input<ZardButtonTypeVariants>('default');
-  readonly zSize = input<ZardButtonSizeVariants>('default');
-  readonly zShape = input<ZardButtonShapeVariants>('default');
-  readonly zLoading = input(false, { transform: booleanAttribute });
-  readonly class = input<ClassValue>('');
-  readonly disabledState = computed(() => this.zDisabled() || this.zLoading() || !this.questionnaire.canMoveNext());
-  protected readonly classes = computed(() =>
+  override readonly zDisabled = input(false, { alias: 'disabled', transform: booleanAttribute });
+  override readonly zType = input<ZardButtonTypeVariants>('default');
+  override readonly zSize = input<ZardButtonSizeVariants>('default');
+  override readonly zShape = input<ZardButtonShapeVariants>('default');
+  override readonly zLoading = input(false, { transform: booleanAttribute });
+  override readonly class = input<ClassValue>('');
+  readonly disabledState = computed(
+    () => this.zDisabled() || this.zLoading() || this.questionnaire.disabled() || !this.questionnaire.canMoveNext(),
+  );
+
+  protected override readonly classes = computed(() =>
     mergeClasses(
       buttonVariants({
         zType: this.zType(),
@@ -159,8 +190,12 @@ export class ZardQuestionnaireNextDirective {
   }
 }
 
-@Directive({
+@Component({
   selector: 'button[z-questionnaire-submit]',
+  imports: [NgIcon],
+  template: NAVIGATION_BUTTON_TEMPLATE,
+  encapsulation: ViewEncapsulation.None,
+  viewProviders: [provideIcons({ lucideLoaderCircle })],
   host: {
     type: 'submit',
     'data-slot': 'questionnaire-submit',
@@ -174,17 +209,20 @@ export class ZardQuestionnaireNextDirective {
   },
   exportAs: 'zQuestionnaireSubmit',
 })
-export class ZardQuestionnaireSubmitDirective {
+export class ZardQuestionnaireSubmitDirective extends ZardButtonComponent {
   protected readonly questionnaire = inject(ZardQuestionnaireComponent);
 
-  readonly zDisabled = input(false, { alias: 'disabled', transform: booleanAttribute });
-  readonly zType = input<ZardButtonTypeVariants>('default');
-  readonly zSize = input<ZardButtonSizeVariants>('default');
-  readonly zShape = input<ZardButtonShapeVariants>('default');
-  readonly zLoading = input(false, { transform: booleanAttribute });
-  readonly class = input<ClassValue>('');
-  readonly disabledState = computed(() => this.zDisabled() || this.zLoading() || !this.questionnaire.canSubmit());
-  protected readonly classes = computed(() =>
+  override readonly zDisabled = input(false, { alias: 'disabled', transform: booleanAttribute });
+  override readonly zType = input<ZardButtonTypeVariants>('default');
+  override readonly zSize = input<ZardButtonSizeVariants>('default');
+  override readonly zShape = input<ZardButtonShapeVariants>('default');
+  override readonly zLoading = input(false, { transform: booleanAttribute });
+  override readonly class = input<ClassValue>('');
+  readonly disabledState = computed(
+    () => this.zDisabled() || this.zLoading() || this.questionnaire.disabled() || !this.questionnaire.canSubmit(),
+  );
+
+  protected override readonly classes = computed(() =>
     mergeClasses(
       buttonVariants({
         zType: this.zType(),

@@ -22,9 +22,11 @@ import type { ZardQuestionnaireItem } from './questionnaire.types';
   template: `
     <z-questionnaire [zItems]="items" [(zActive)]="active">
       <input type="radio" name="first" value="answered" checked />
-      <button type="button" z-questionnaire-previous [disabled]="previousDisabled">Previous</button>
+      <button class="custom-previous" type="button" z-questionnaire-previous [disabled]="previousDisabled">
+        Previous
+      </button>
       <button type="button" z-questionnaire-skip [disabled]="skipDisabled">Skip</button>
-      <button type="button" z-questionnaire-next [disabled]="nextDisabled">Next</button>
+      <button type="button" z-questionnaire-next [disabled]="nextDisabled" [zLoading]="nextLoading">Next</button>
       <button type="submit" z-questionnaire-submit [disabled]="submitDisabled">Submit</button>
     </z-questionnaire>
   `,
@@ -41,6 +43,7 @@ class NavigationDirectiveHostComponent {
   previousDisabled = false;
   skipDisabled = false;
   nextDisabled = false;
+  nextLoading = false;
   submitDisabled = false;
 }
 
@@ -191,6 +194,18 @@ describe('questionnaire navigation directives', () => {
       expect(button.disabled).toBe(true);
       expect(button.hidden).toBe(false);
       expect(fixture.componentInstance.active).toBe('first');
+    });
+
+    it('inherits the shared button loading indicator and disabled behavior', () => {
+      const fixture = TestBed.createComponent(NavigationDirectiveHostComponent);
+      fixture.componentInstance.nextLoading = true;
+      fixture.detectChanges();
+      const button = getButton(fixture, ZardQuestionnaireNextDirective);
+
+      expect(button.disabled).toBe(true);
+      expect(button.getAttribute('aria-busy')).toBe('true');
+      expect(button.querySelector('ng-icon')).not.toBeNull();
+      expect(button.classList).toContain('opacity-50');
     });
   });
 

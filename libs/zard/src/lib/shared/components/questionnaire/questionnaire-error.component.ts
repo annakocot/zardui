@@ -1,4 +1,12 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, ViewEncapsulation } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  inject,
+  input,
+  type OnDestroy,
+  ViewEncapsulation,
+} from '@angular/core';
 
 import type { ClassValue } from 'clsx';
 
@@ -18,14 +26,23 @@ import { questionnaireErrorVariants } from './questionnaire.variants';
   encapsulation: ViewEncapsulation.None,
   host: {
     'data-slot': 'questionnaire-error',
+    '[id]': 'item.errorId()',
     role: 'alert',
     '[hidden]': '!item.isInvalid()',
     '[class]': 'classes()',
   },
   exportAs: 'zQuestionnaireError',
 })
-export class ZardQuestionnaireErrorComponent {
+export class ZardQuestionnaireErrorComponent implements OnDestroy {
   readonly item = inject(ZardQuestionnaireItemComponent);
   readonly class = input<ClassValue>('');
   protected readonly classes = computed(() => mergeClasses(questionnaireErrorVariants(), this.class()));
+
+  constructor() {
+    this.item.errorPresent.set(true);
+  }
+
+  ngOnDestroy(): void {
+    this.item.errorPresent.set(false);
+  }
 }
