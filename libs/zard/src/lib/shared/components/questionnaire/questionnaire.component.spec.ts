@@ -416,6 +416,12 @@ function getAction<T>(fixture: ComponentFixture<T>, directive: Type<unknown>): H
   return fixture.debugElement.query(By.directive(directive)).nativeElement as HTMLButtonElement;
 }
 
+function dispatchShortcut<T>(fixture: ComponentFixture<T>, key: string, options: KeyboardEventInit = {}): void {
+  const questionnaire = fixture.nativeElement.querySelector('z-questionnaire') as HTMLElement;
+  questionnaire.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, ...options }));
+  fixture.detectChanges();
+}
+
 describe('ZardQuestionnaireComponent', () => {
   afterEach(() => TestBed.resetTestingModule());
 
@@ -464,15 +470,13 @@ describe('ZardQuestionnaireComponent', () => {
     expect(disabledItem.hidden).toBe(true);
     expect(disabledItem.querySelector('[aria-keyshortcuts]')).toBeNull();
 
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
-    fixture.detectChanges();
+    dispatchShortcut(fixture, 'a');
     fixture.debugElement.query(By.directive(ZardQuestionnaireNextDirective)).nativeElement.click();
     fixture.detectChanges();
 
     expect(fixture.componentInstance.active).toBe('last');
 
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
-    fixture.detectChanges();
+    dispatchShortcut(fixture, 'a');
     fixture.debugElement.query(By.directive(ZardQuestionnaireSubmitDirective)).nativeElement.click();
     fixture.detectChanges();
 
@@ -775,8 +779,7 @@ describe('ZardQuestionnaireComponent', () => {
       { name: 'second', required: true },
     ]);
 
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
-    fixture.detectChanges();
+    dispatchShortcut(fixture, 'a');
 
     expect(getChoiceInput(fixture, 'first', 'a').checked).toBe(true);
     expect(fixture.componentInstance.active).toBe('first');
@@ -846,8 +849,7 @@ describe('ZardQuestionnaireComponent', () => {
     fixture.componentInstance.shortcuts = 'numbers';
     fixture.detectChanges();
 
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: '2', bubbles: true }));
-    fixture.detectChanges();
+    dispatchShortcut(fixture, '2');
 
     expect(getChoiceInput(fixture, 'first', 'b').checked).toBe(true);
     expect(fixture.componentInstance.active).toBe('first');
@@ -856,8 +858,7 @@ describe('ZardQuestionnaireComponent', () => {
   it('should ignore shortcuts with modifier keys', async () => {
     const fixture = await createBehaviorFixture([{ name: 'first', required: true }]);
 
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }));
-    fixture.detectChanges();
+    dispatchShortcut(fixture, 'a', { ctrlKey: true });
 
     expect(getChoiceInput(fixture, 'first', 'a').checked).toBe(false);
   });
@@ -867,8 +868,7 @@ describe('ZardQuestionnaireComponent', () => {
     fixture.componentInstance.firstChoiceDisabled = true;
     fixture.detectChanges();
 
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }));
-    fixture.detectChanges();
+    dispatchShortcut(fixture, 'a');
 
     expect(getChoiceInput(fixture, 'first', 'a').checked).toBe(false);
   });
