@@ -56,6 +56,28 @@ describe('ComponentPage', () => {
     expect(sections).toEqual(['examples', 'accessibility', 'api']);
   });
 
+  it('renders backtick-delimited accessibility references as inline code', () => {
+    const data: ComponentData = {
+      componentName: 'questionnaire',
+      description: 'Questionnaire documentation.',
+      examples: [{ name: 'default', component: TestDemoComponent, codeData: CODE_DATA }],
+      accessibility: [
+        'Each `z-questionnaire-item` renders a fieldset.',
+        'Give `z-questionnaire-input` an accessible name.',
+      ],
+    };
+
+    component.componentData.set(data);
+    fixture.detectChanges();
+
+    const accessibility = (fixture.nativeElement as HTMLElement).querySelector('#accessibility') as HTMLElement;
+    const code = Array.from(accessibility.querySelectorAll('code'));
+
+    expect(code.map(element => element.textContent)).toEqual(['z-questionnaire-item', 'z-questionnaire-input']);
+    expect(accessibility.textContent).not.toContain('`');
+    expect(accessibility.textContent).toContain('Each z-questionnaire-item renders a fieldset.');
+  });
+
   it('renders extended usage guidance and additional code blocks', () => {
     const data: ComponentData = {
       componentName: 'questionnaire',
