@@ -154,6 +154,7 @@ export class ZardQuestionnaireComponent implements ControlValueAccessor {
 
     this.updateSet(this.skippedItems, activeItem.name, true);
     this.updateSet(this.invalidItems, activeItem.name, false);
+    this.onChangeFn(this.collectAnswers());
 
     if (this.canMoveNext()) {
       const nextItem = this.enabledItems()[this.activeIndex() + 1];
